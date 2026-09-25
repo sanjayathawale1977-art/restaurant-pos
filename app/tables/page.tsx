@@ -8,7 +8,7 @@ const TABLES = ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6"];
 export default function TableQRCodesScreen() {
   const getQRUrl = (table: string) => {
     // Dynamic URL for local testing or live domain
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://restaurant-pos-three-neon.vercel.app/";
     const targetUrl = `${origin}/menu?table=${table}`;
     return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(targetUrl)}`;
   };
