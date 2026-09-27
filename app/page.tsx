@@ -13,6 +13,9 @@ import {
   Package,
   QrCode,
   BarChart3,
+  CreditCard,
+  Banknote,
+  X,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -123,6 +126,10 @@ export default function RestaurantPOS() {
   const [loading, setLoading] = useState<boolean>(false);
   const [orderSuccess, setOrderSuccess] = useState<boolean>(false);
 
+  // Payment Selection States
+  const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
+  const [confirmedPaymentMode, setConfirmedPaymentMode] = useState<string>("Cash");
+
   const addToCart = (item: MenuItem) => {
     setCart((prev) => {
       const existing = prev.find((i) => i.id === item.id);
@@ -194,9 +201,11 @@ export default function RestaurantPOS() {
     }
   };
 
-  const handleSendToKitchen = async () => {
+  // Place Order with Selected Mode
+  const finalizeOrderWithPayment = async (mode: "Cash" | "Online") => {
     if (cart.length === 0) return;
     setLoading(true);
+    setConfirmedPaymentMode(mode);
 
     try {
       const { error } = await supabase.from("orders").insert([
@@ -209,6 +218,7 @@ export default function RestaurantPOS() {
           })),
           status: "Pending",
           total_amount: grandTotal,
+          payment_mode: mode,
         },
       ]);
 
@@ -216,7 +226,14 @@ export default function RestaurantPOS() {
         alert("Order error: " + error.message);
       } else {
         await deductInventoryStock(cart);
+        setShowPaymentModal(false);
         setOrderSuccess(true);
+
+        // Auto prompt print
+        setTimeout(() => {
+          window.print();
+        }, 300);
+
         setTimeout(() => {
           setOrderSuccess(false);
           setCart([]);
@@ -245,7 +262,7 @@ export default function RestaurantPOS() {
           </div>
           <div className="flex justify-between">
             <span>Time: {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-            <span>Type: Dine-In</span>
+            <span>Mode: <strong>{confirmedPaymentMode.toUpperCase()}</strong></span>
           </div>
         </div>
 
@@ -287,6 +304,10 @@ export default function RestaurantPOS() {
             <span>Grand Total:</span>
             <span>₹{grandTotal.toFixed(2)}</span>
           </div>
+          <div className="flex justify-between text-[10px] text-gray-700 pt-1">
+            <span>Payment Status:</span>
+            <span className="font-bold text-black">PAID ({confirmedPaymentMode.toUpperCase()})</span>
+          </div>
         </div>
 
         <div className="text-center text-[10px] mt-4 pt-2 border-t border-dashed border-black">
@@ -294,7 +315,7 @@ export default function RestaurantPOS() {
         </div>
       </div>
 
-      {/* POS Billing Screen */}
+      {/* POS Screen */}
       <div className="flex-1 flex flex-col p-6 overflow-hidden">
         <header className="flex justify-between items-center mb-6">
           <div className="flex items-center space-x-3">
@@ -385,7 +406,7 @@ export default function RestaurantPOS() {
           ))}
         </div>
 
-        {/* Food Dishes Grid with Images */}
+        {/* Food Dishes Grid */}
         <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pr-1">
           {filteredMenu.map((item) => (
             <div
@@ -487,34 +508,79 @@ export default function RestaurantPOS() {
             <span className="text-orange-600">₹{grandTotal}</span>
           </div>
 
-          <div className="pt-3 grid grid-cols-2 gap-2">
+          <div className="pt-3">
             <button
-              onClick={() => window.print()}
-              disabled={cart.length === 0}
-              className="flex items-center justify-center gap-1.5 py-2.5 bg-white border border-slate-300 text-slate-700 font-semibold rounded-xl hover:bg-slate-100 disabled:opacity-50 transition"
-            >
-              <Printer className="w-4 h-4" />
-              <span>Print Bill</span>
-            </button>
-            <button
-              onClick={handleSendToKitchen}
+              onClick={() => setShowPaymentModal(true)}
               disabled={cart.length === 0 || loading}
-              className="flex items-center justify-center gap-1.5 py-2.5 bg-orange-500 text-white font-semibold rounded-xl hover:bg-orange-600 disabled:opacity-50 shadow-md shadow-orange-500/20 transition"
+              className="w-full flex items-center justify-center gap-2 py-3 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 disabled:opacity-50 shadow-md shadow-orange-500/20 transition"
             >
               {loading ? (
-                <span>Sending...</span>
+                <span>Processing...</span>
               ) : orderSuccess ? (
                 <>
-                  <CheckCircle className="w-4 h-4" />
-                  <span>Order Sent!</span>
+                  <CheckCircle className="w-5 h-5" />
+                  <span>Order Placed & Sent!</span>
                 </>
               ) : (
-                <span>Send to KOT</span>
+                <>
+                  <Printer className="w-4 h-4" />
+                  <span>Pay & Send to KOT</span>
+                </>
               )}
             </button>
           </div>
         </div>
       </div>
+
+      {/* Payment Selection Modal Popup */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
+              <div>
+                <h3 className="font-bold text-lg text-slate-900">Select Payment Mode</h3>
+                <p className="text-xs text-slate-500">Table: {selectedTable} | Total: ₹{grandTotal}</p>
+              </div>
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-4 text-center">
+              Customer se poochkar payment ka tareeqa select karein:
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mb-2">
+              <button
+                onClick={() => finalizeOrderWithPayment("Cash")}
+                disabled={loading}
+                className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100 hover:border-emerald-500 text-emerald-800 font-bold transition group"
+              >
+                <div className="p-3 bg-emerald-500 text-white rounded-xl mb-2 group-hover:scale-110 transition">
+                  <Banknote className="w-6 h-6" />
+                </div>
+                <span className="text-sm">Cash</span>
+                <span className="text-[10px] text-emerald-600 font-normal">Hath mein cash</span>
+              </button>
+
+              <button
+                onClick={() => finalizeOrderWithPayment("Online")}
+                disabled={loading}
+                className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-blue-200 bg-blue-50/50 hover:bg-blue-100 hover:border-blue-500 text-blue-800 font-bold transition group"
+              >
+                <div className="p-3 bg-blue-500 text-white rounded-xl mb-2 group-hover:scale-110 transition">
+                  <CreditCard className="w-6 h-6" />
+                </div>
+                <span className="text-sm">Online / UPI</span>
+                <span className="text-[10px] text-blue-600 font-normal">QR / PhonePe / Card</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

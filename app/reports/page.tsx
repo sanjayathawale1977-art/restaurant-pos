@@ -1,7 +1,17 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { DollarSign, ShoppingBag, TrendingUp, Utensils, RefreshCw, Calendar, ArrowLeft } from "lucide-react";
+import {
+  DollarSign,
+  ShoppingBag,
+  TrendingUp,
+  Utensils,
+  RefreshCw,
+  Calendar,
+  ArrowLeft,
+  Banknote,
+  CreditCard,
+} from "lucide-react";
 import { supabase } from "../supabaseClient";
 
 interface OrderItem {
@@ -16,6 +26,7 @@ interface OrderRecord {
   items: OrderItem[];
   status: string;
   total_amount: number;
+  payment_mode?: string;
   created_at: string;
 }
 
@@ -40,12 +51,21 @@ export default function ReportsDashboard() {
     fetchSalesData();
   }, []);
 
-  // 1. Key Metrics Calculations
+  // 1. Calculations
   const totalRevenue = orders.reduce((sum, order) => sum + (Number(order.total_amount) || 0), 0);
   const totalOrders = orders.length;
   const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
 
-  // 2. Dish Popularity (Top Selling Items)
+  // Cash vs Online Breakdown
+  const cashTotal = orders
+    .filter((o) => (o.payment_mode || "Cash").toLowerCase() === "cash")
+    .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+  const onlineTotal = orders
+    .filter((o) => (o.payment_mode || "").toLowerCase() === "online")
+    .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+  // 2. Dish Popularity
   const itemSalesMap: Record<string, { qty: number; revenue: number }> = {};
   orders.forEach((order) => {
     if (Array.isArray(order.items)) {
@@ -74,7 +94,7 @@ export default function ReportsDashboard() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Sales & Revenue Reports</h1>
-            <p className="text-xs text-slate-500">Live sales performance and dish analytics</p>
+            <p className="text-xs text-slate-500">Live sales performance, payment modes, and dish analytics</p>
           </div>
         </div>
 
@@ -96,44 +116,49 @@ export default function ReportsDashboard() {
         </div>
       </div>
 
-      {/* Metric Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-8">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Revenue</p>
-            <h3 className="text-2xl font-black text-slate-900 mt-1">₹{totalRevenue.toLocaleString("en-IN")}</h3>
-            <span className="text-[11px] text-emerald-600 font-medium">From all completed & live orders</span>
-          </div>
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
-            <DollarSign className="w-6 h-6" />
-          </div>
+      {/* Metric Cards - 5 Cards including Cash & Online */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Revenue</p>
+          <h3 className="text-xl font-black text-slate-900 mt-1">₹{totalRevenue.toLocaleString("en-IN")}</h3>
+          <span className="text-[10px] text-slate-400">All orders total</span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Orders</p>
-            <h3 className="text-2xl font-black text-slate-900 mt-1">{totalOrders}</h3>
-            <span className="text-[11px] text-slate-400">Total KOTs punched</span>
+        {/* CASH COLLECTION CARD */}
+        <div className="bg-emerald-50/70 border border-emerald-200 p-4 rounded-2xl shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Cash In Hand</p>
+            <Banknote className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-            <ShoppingBag className="w-6 h-6" />
-          </div>
+          <h3 className="text-xl font-black text-emerald-900 mt-1">₹{cashTotal.toLocaleString("en-IN")}</h3>
+          <span className="text-[10px] text-emerald-600 font-medium">Physical cash collected</span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Average Order Value</p>
-            <h3 className="text-2xl font-black text-slate-900 mt-1">₹{avgOrderValue}</h3>
-            <span className="text-[11px] text-orange-600 font-medium">Avg ticket size per table</span>
+        {/* ONLINE COLLECTION CARD */}
+        <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-2xl shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Online / UPI</p>
+            <CreditCard className="w-4 h-4 text-blue-600" />
           </div>
-          <div className="p-3 bg-orange-50 text-orange-600 rounded-xl">
-            <TrendingUp className="w-6 h-6" />
-          </div>
+          <h3 className="text-xl font-black text-blue-900 mt-1">₹{onlineTotal.toLocaleString("en-IN")}</h3>
+          <span className="text-[10px] text-blue-600 font-medium">Bank account / UPI</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Orders</p>
+          <h3 className="text-xl font-black text-slate-900 mt-1">{totalOrders}</h3>
+          <span className="text-[10px] text-slate-400">Total KOTs</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Avg Order Value</p>
+          <h3 className="text-xl font-black text-slate-900 mt-1">₹{avgOrderValue}</h3>
+          <span className="text-[10px] text-orange-600 font-medium">Per table average</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Top Selling Dishes Table */}
+        {/* Top Selling Dishes */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm lg:col-span-1">
           <div className="flex items-center space-x-2 mb-4 pb-2 border-b border-slate-100">
             <Utensils className="w-4 h-4 text-orange-500" />
@@ -157,11 +182,11 @@ export default function ReportsDashboard() {
           )}
         </div>
 
-        {/* Recent Orders Log */}
+        {/* Recent Orders Log with Payment Mode Badge */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
           <div className="flex items-center space-x-2 mb-4 pb-2 border-b border-slate-100">
             <Calendar className="w-4 h-4 text-orange-500" />
-            <h2 className="font-bold text-slate-900 text-sm">Recent Order Transactions</h2>
+            <h2 className="font-bold text-slate-900 text-sm">Recent Transactions & Payment Mode</h2>
           </div>
 
           <div className="overflow-x-auto">
@@ -170,41 +195,56 @@ export default function ReportsDashboard() {
                 <tr>
                   <th className="py-2.5 px-3">Order ID</th>
                   <th className="py-2.5 px-3">Table</th>
+                  <th className="py-2.5 px-3">Payment Mode</th>
                   <th className="py-2.5 px-3">Status</th>
                   <th className="py-2.5 px-3">Time</th>
                   <th className="py-2.5 px-3 text-right">Amount</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {orders.slice(0, 8).map((order) => (
-                  <tr key={order.id} className="hover:bg-slate-50 transition">
-                    <td className="py-3 px-3 font-semibold text-slate-900">#{order.id}</td>
-                    <td className="py-3 px-3">
-                      <span className="font-bold bg-slate-100 px-2 py-0.5 rounded text-slate-700">
-                        {order.table_number}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          order.status === "Ready"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : order.status === "Preparing"
-                            ? "bg-sky-100 text-sky-700"
-                            : "bg-amber-100 text-amber-700"
-                        }`}
-                      >
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-slate-400">
-                      {new Date(order.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </td>
-                    <td className="py-3 px-3 text-right font-bold text-slate-900">
-                      ₹{order.total_amount}
-                    </td>
-                  </tr>
-                ))}
+                {orders.slice(0, 10).map((order) => {
+                  const isOnline = (order.payment_mode || "").toLowerCase() === "online";
+                  return (
+                    <tr key={order.id} className="hover:bg-slate-50 transition">
+                      <td className="py-3 px-3 font-semibold text-slate-900">#{order.id}</td>
+                      <td className="py-3 px-3">
+                        <span className="font-bold bg-slate-100 px-2 py-0.5 rounded text-slate-700">
+                          {order.table_number}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            isOnline
+                              ? "bg-blue-100 text-blue-700 border border-blue-200"
+                              : "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                          }`}
+                        >
+                          {isOnline ? "📱 ONLINE" : "💵 CASH"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            order.status === "Ready"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : order.status === "Preparing"
+                              ? "bg-sky-100 text-sky-700"
+                              : "bg-amber-100 text-amber-700"
+                          }`}
+                        >
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-slate-400">
+                        {new Date(order.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </td>
+                      <td className="py-3 px-3 text-right font-bold text-slate-900">
+                        ₹{order.total_amount}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
