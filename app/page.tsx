@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Utensils,
   ShoppingCart,
@@ -16,6 +16,9 @@ import {
   CreditCard,
   Banknote,
   X,
+  RefreshCw,
+  Bell,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -29,6 +32,16 @@ interface MenuItem {
 
 interface CartItem extends MenuItem {
   quantity: number;
+}
+
+interface DBOrder {
+  id: number;
+  table_number: string;
+  items: { name: string; quantity: number; price: number }[];
+  status: string;
+  total_amount: number;
+  payment_mode?: string;
+  created_at: string;
 }
 
 const MENU_DATA: MenuItem[] = [
@@ -126,9 +139,80 @@ export default function RestaurantPOS() {
   const [loading, setLoading] = useState<boolean>(false);
   const [orderSuccess, setOrderSuccess] = useState<boolean>(false);
 
+  // Active QR Orders tracking from Supabase
+  const [activeOrders, setActiveOrders] = useState<DBOrder[]>([]);
+  const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
+
   // Payment Selection States
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
   const [confirmedPaymentMode, setConfirmedPaymentMode] = useState<string>("Cash");
+
+  // 1. Fetch all pending/active orders from Supabase
+  const fetchLiveOrders = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("orders")
+        .select("*")
+        .neq("status", "Completed")
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        setActiveOrders(data as DBOrder[]);
+      }
+    } catch {
+      console.error("Failed to fetch live orders");
+    }
+  }, []);
+
+  // Poll database every 5 seconds for new customer QR orders
+  useEffect(() => {
+    fetchLiveOrders();
+    const interval = setInterval(fetchLiveOrders, 5000);
+    return () => clearInterval(interval);
+  }, [fetchLiveOrders]);
+
+  // 2. When a table is selected, check if customer ordered via QR
+  const loadOrderForTable = useCallback(
+    (tableNum: string, currentOrders: DBOrder[]) => {
+      const tableOrder = currentOrders.find(
+        (o) => o.table_number === tableNum && o.status !== "Completed"
+      );
+
+      if (tableOrder) {
+        setActiveOrderId(tableOrder.id);
+        // Map database order items to local cart
+        const mappedItems: CartItem[] = tableOrder.items.map((item, index) => {
+          const menuItem = MENU_DATA.find((m) => m.name === item.name);
+          return {
+            id: menuItem ? menuItem.id : 1000 + index,
+            name: item.name,
+            category: menuItem ? menuItem.category : "Food",
+            price: Number(item.price),
+            quantity: Number(item.quantity),
+            image: menuItem ? menuItem.image : "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=400&q=80",
+          };
+        });
+        setCart(mappedItems);
+      } else {
+        setActiveOrderId(null);
+        setCart([]);
+      }
+    },
+    []
+  );
+
+  // Switch table handler
+  const handleSelectTable = (table: string) => {
+    setSelectedTable(table);
+    loadOrderForTable(table, activeOrders);
+  };
+
+  // Sync if activeOrders list updates while currently viewing a table
+  useEffect(() => {
+    if (!activeOrderId && cart.length === 0) {
+      loadOrderForTable(selectedTable, activeOrders);
+    }
+  }, [activeOrders, selectedTable, activeOrderId, cart.length, loadOrderForTable]);
 
   const addToCart = (item: MenuItem) => {
     setCart((prev) => {
@@ -201,11 +285,10 @@ export default function RestaurantPOS() {
     }
   };
 
-  // Place Order with Selected Mode
-  const finalizeOrderWithPayment = async (mode: "Cash" | "Online") => {
+  // Process manual POS order directly to KOT
+  const handleSendToKitchen = async () => {
     if (cart.length === 0) return;
     setLoading(true);
-    setConfirmedPaymentMode(mode);
 
     try {
       const { error } = await supabase.from("orders").insert([
@@ -218,7 +301,7 @@ export default function RestaurantPOS() {
           })),
           status: "Pending",
           total_amount: grandTotal,
-          payment_mode: mode,
+          payment_mode: "Pending",
         },
       ]);
 
@@ -226,21 +309,76 @@ export default function RestaurantPOS() {
         alert("Order error: " + error.message);
       } else {
         await deductInventoryStock(cart);
-        setShowPaymentModal(false);
         setOrderSuccess(true);
-
-        // Auto prompt print
-        setTimeout(() => {
-          window.print();
-        }, 300);
-
+        await fetchLiveOrders();
         setTimeout(() => {
           setOrderSuccess(false);
-          setCart([]);
         }, 2000);
       }
     } catch {
       alert("Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Finalize payment & complete order (both for QR Orders and Manual Orders)
+  const finalizeOrderWithPayment = async (mode: "Cash" | "Online") => {
+    if (cart.length === 0) return;
+    setLoading(true);
+    setConfirmedPaymentMode(mode);
+
+    try {
+      if (activeOrderId) {
+        // Update existing QR order in database
+        const { error } = await supabase
+          .from("orders")
+          .update({
+            payment_mode: mode,
+            status: "Completed",
+            total_amount: grandTotal,
+          })
+          .eq("id", activeOrderId);
+
+        if (error) throw error;
+      } else {
+        // Fresh manual order payment
+        const { error } = await supabase.from("orders").insert([
+          {
+            table_number: selectedTable,
+            items: cart.map((item) => ({
+              name: item.name,
+              quantity: item.quantity,
+              price: item.price,
+            })),
+            status: "Completed",
+            total_amount: grandTotal,
+            payment_mode: mode,
+          },
+        ]);
+
+        if (error) throw error;
+        await deductInventoryStock(cart);
+      }
+
+      setShowPaymentModal(false);
+      setOrderSuccess(true);
+
+      // Trigger Bill Print
+      setTimeout(() => {
+        window.print();
+      }, 300);
+
+      // Clear table after payment
+      setTimeout(() => {
+        setOrderSuccess(false);
+        setActiveOrderId(null);
+        setCart([]);
+        fetchLiveOrders();
+      }, 2000);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Payment processing failed";
+      alert("Payment error: " + message);
     } finally {
       setLoading(false);
     }
@@ -264,6 +402,11 @@ export default function RestaurantPOS() {
             <span>Time: {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
             <span>Mode: <strong>{confirmedPaymentMode.toUpperCase()}</strong></span>
           </div>
+          {activeOrderId && (
+            <div className="text-[10px] text-gray-600">
+              <span>Order ID: #{activeOrderId} (QR Customer Order)</span>
+            </div>
+          )}
         </div>
 
         <table className="w-full text-[11px] my-2">
@@ -324,7 +467,7 @@ export default function RestaurantPOS() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900">Restaurant POS</h1>
-              <p className="text-xs text-slate-500">Quick Order & Billing</p>
+              <p className="text-xs text-slate-500">Live Dine-in & QR Billing</p>
             </div>
           </div>
 
@@ -369,26 +512,69 @@ export default function RestaurantPOS() {
               <span>Kitchen Screen ↗</span>
             </a>
 
+            {/* Live Table Selector with Active QR Indicators */}
             <div className="flex items-center space-x-2 pl-2">
               <span className="text-sm font-semibold text-slate-600">Table:</span>
-              <div className="flex gap-1 bg-white p-1 rounded-xl shadow-sm border border-slate-200">
-                {TABLES.map((table) => (
-                  <button
-                    key={table}
-                    onClick={() => setSelectedTable(table)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                      selectedTable === table
-                        ? "bg-orange-500 text-white shadow-sm"
-                        : "text-slate-600 hover:bg-slate-100"
-                    }`}
-                  >
-                    {table}
-                  </button>
-                ))}
+              <div className="flex gap-1.5 bg-white p-1 rounded-xl shadow-sm border border-slate-200">
+                {TABLES.map((table) => {
+                  const hasActiveQR = activeOrders.some(
+                    (o) => o.table_number === table && o.status !== "Completed"
+                  );
+                  const isSelected = selectedTable === table;
+
+                  return (
+                    <button
+                      key={table}
+                      onClick={() => handleSelectTable(table)}
+                      className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                        isSelected
+                          ? "bg-orange-500 text-white shadow-sm"
+                          : hasActiveQR
+                          ? "bg-amber-100 text-amber-900 border border-amber-300"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {table}
+                      {hasActiveQR && (
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
         </header>
+
+        {/* Live Notification Bar if Table has Active QR Order */}
+        {activeOrderId ? (
+          <div className="mb-4 bg-orange-50 border border-orange-200 rounded-2xl p-3 px-4 flex items-center justify-between text-xs text-orange-900 shadow-xs">
+            <div className="flex items-center gap-2 font-medium">
+              <Sparkles className="w-4 h-4 text-orange-500 animate-spin" />
+              <span>
+                <strong>Customer QR Order Active (#{activeOrderId})</strong> for <strong>{selectedTable}</strong>. Items automatically loaded!
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-1 bg-white border border-orange-300 text-orange-700 px-3 py-1 rounded-lg font-bold hover:bg-orange-100 transition shadow-2xs"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Quick Print</span>
+              </button>
+              <button
+                onClick={() => {
+                  setActiveOrderId(null);
+                  setCart([]);
+                }}
+                className="text-slate-400 hover:text-slate-600 text-[11px] underline"
+              >
+                Start New Blank Bill
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
           {CATEGORIES.map((cat) => (
@@ -439,24 +625,33 @@ export default function RestaurantPOS() {
         </div>
       </div>
 
-      {/* Cart Sidebar */}
+      {/* Cart & Billing Sidebar */}
       <div className="w-96 bg-white border-l border-slate-200 flex flex-col shadow-lg">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <ShoppingCart className="w-5 h-5 text-orange-500" />
-            <h2 className="font-bold text-slate-900">Current Order</h2>
+            <h2 className="font-bold text-slate-900">
+              {activeOrderId ? `Order #${activeOrderId}` : "Current Order"}
+            </h2>
           </div>
-          <span className="bg-orange-100 text-orange-700 text-xs px-2.5 py-1 rounded-full font-bold">
-            {selectedTable}
-          </span>
+          <div className="flex items-center gap-2">
+            {activeOrderId && (
+              <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-md font-extrabold border border-amber-300">
+                📱 QR ORDER
+              </span>
+            )}
+            <span className="bg-orange-100 text-orange-700 text-xs px-2.5 py-1 rounded-full font-bold">
+              {selectedTable}
+            </span>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 text-sm">
               <ShoppingCart className="w-10 h-10 mb-2 stroke-[1.5]" />
-              <p>No items added yet</p>
-              <p className="text-xs text-slate-400 mt-1">Tap dishes to add to bill</p>
+              <p>No items for {selectedTable}</p>
+              <p className="text-xs text-slate-400 mt-1">Tap dishes to add, or wait for customer QR order</p>
             </div>
           ) : (
             cart.map((item) => (
@@ -494,6 +689,7 @@ export default function RestaurantPOS() {
           )}
         </div>
 
+        {/* Bill Summary & Action Buttons */}
         <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-2 text-xs text-slate-600">
           <div className="flex justify-between">
             <span>Subtotal</span>
@@ -508,27 +704,48 @@ export default function RestaurantPOS() {
             <span className="text-orange-600">₹{grandTotal}</span>
           </div>
 
-          <div className="pt-3">
+          <div className="pt-2 grid grid-cols-2 gap-2">
+            {/* PRINT BUTTON IS ALWAYS ACCESSIBLE */}
+            <button
+              onClick={() => window.print()}
+              disabled={cart.length === 0}
+              className="flex items-center justify-center gap-1.5 py-2.5 bg-white border-2 border-slate-300 text-slate-800 font-bold rounded-xl hover:bg-slate-100 disabled:opacity-50 transition shadow-xs"
+            >
+              <Printer className="w-4 h-4 text-slate-600" />
+              <span>Print Bill</span>
+            </button>
+
+            {/* PAY & SETTLE BUTTON */}
             <button
               onClick={() => setShowPaymentModal(true)}
               disabled={cart.length === 0 || loading}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 disabled:opacity-50 shadow-md shadow-orange-500/20 transition"
+              className="flex items-center justify-center gap-1.5 py-2.5 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 disabled:opacity-50 shadow-md shadow-orange-500/20 transition"
             >
               {loading ? (
-                <span>Processing...</span>
+                <span>Saving...</span>
               ) : orderSuccess ? (
                 <>
-                  <CheckCircle className="w-5 h-5" />
-                  <span>Order Placed & Sent!</span>
+                  <CheckCircle className="w-4 h-4" />
+                  <span>Paid!</span>
                 </>
               ) : (
                 <>
-                  <Printer className="w-4 h-4" />
-                  <span>Pay & Send to KOT</span>
+                  <CreditCard className="w-4 h-4" />
+                  <span>Settle & Pay</span>
                 </>
               )}
             </button>
           </div>
+
+          {!activeOrderId && cart.length > 0 && (
+            <button
+              onClick={handleSendToKitchen}
+              disabled={loading}
+              className="w-full mt-1 py-1.5 text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition"
+            >
+              + Send to Kitchen Only (Unpaid)
+            </button>
+          )}
         </div>
       </div>
 
@@ -550,7 +767,7 @@ export default function RestaurantPOS() {
             </div>
 
             <p className="text-xs text-slate-600 mb-4 text-center">
-              Customer se poochkar payment ka tareeqa select karein:
+              Customer se poochkar payment select karein (ispe click karte hi bill print ho jayega):
             </p>
 
             <div className="grid grid-cols-2 gap-3 mb-2">
