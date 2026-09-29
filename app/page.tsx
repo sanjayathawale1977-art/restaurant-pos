@@ -103,32 +103,6 @@ const MENU_DATA: MenuItem[] = [
   },
 ];
 
-const RECIPES: Record<string, { ingredient: string; qty: number }[]> = {
-  "Paneer Butter Masala": [
-    { ingredient: "Paneer", qty: 0.25 },
-    { ingredient: "Butter", qty: 0.05 },
-  ],
-  "Dal Makhani": [{ ingredient: "Butter", qty: 0.05 }],
-  "Butter Naan": [
-    { ingredient: "Flour / Maida", qty: 0.1 },
-    { ingredient: "Butter", qty: 0.02 },
-  ],
-  "Tandoori Roti": [{ ingredient: "Flour / Maida", qty: 0.1 }],
-  "Veg Biryani": [
-    { ingredient: "Basmati Rice", qty: 0.2 },
-    { ingredient: "Paneer", qty: 0.05 },
-  ],
-  "Jeera Rice": [
-    { ingredient: "Basmati Rice", qty: 0.15 },
-    { ingredient: "Butter", qty: 0.02 },
-  ],
-  "Cold Coffee": [
-    { ingredient: "Milk", qty: 0.25 },
-    { ingredient: "Coffee Beans", qty: 0.02 },
-  ],
-  "Masala Chai": [{ ingredient: "Milk", qty: 0.15 }],
-};
-
 const TABLES = ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6"];
 const CATEGORIES = ["All", "Main Course", "Breads", "Rice", "Beverages"];
 
@@ -282,66 +256,57 @@ export default function RestaurantPOS() {
       ? MENU_DATA
       : MENU_DATA.filter((i) => i.category === selectedCategory);
 
-  // Background Inventory update (Screen atkaye bina)
-  const deductInventoryStock = async (orderedCart: CartItem[]) => {
-    try {
-      const usageMap: Record<string, number> = {};
-
-      orderedCart.forEach((cartItem) => {
-        const recipe = RECIPES[cartItem.name];
-        if (recipe) {
-          recipe.forEach((ing) => {
-            usageMap[ing.ingredient] = (usageMap[ing.ingredient] || 0) + ing.qty * cartItem.quantity;
-          });
-        }
-      });
-
-      const ingredientNames = Object.keys(usageMap);
-      if (ingredientNames.length === 0) return;
-
-      const { data: stockItems } = await supabase
-        .from("inventory_items")
-        .select("id, name, current_stock")
-        .in("name", ingredientNames);
-
-      if (stockItems && stockItems.length > 0) {
-        await Promise.all(
-          stockItems.map((item) => {
-            const used = usageMap[item.name] || 0;
-            const remaining = Math.max(0, Number(item.current_stock) - used);
-            return supabase
-              .from("inventory_items")
-              .update({
-                current_stock: Number(remaining.toFixed(2)),
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", item.id);
-          })
-        );
-      }
-    } catch (e) {
-      console.warn("Inventory background update notice:", e);
-    }
-  };
-
-  // Instant KOT Submission
+  // Send to KOT with Smart Round Detection
   const handleSendToKitchenOrAppend = async () => {
     if (cart.length === 0) return;
     setLoading(true);
 
     try {
-      const formattedItems = cart.map((item) => ({
-        name: item.name,
-        quantity: Number(item.quantity),
-        price: Number(item.price),
-        round: item.round || 1,
-      }));
-
       if (activeOrderId) {
+        // Fetch current saved items from DB
+        const { data: currentOrderData } = await supabase
+          .from("orders")
+          .select("items")
+          .eq("id", activeOrderId)
+          .single();
+
+        const prevItems: { name: string; quantity: number; price: number; round?: number }[] =
+          currentOrderData && Array.isArray(currentOrderData.items) ? currentOrderData.items : [];
+
+        const maxPrevRound = prevItems.reduce((max, it) => Math.max(max, it.round || 1), 1);
+        const nextRound = maxPrevRound + 1;
+
+        const updatedList: { name: string; quantity: number; price: number; round: number }[] = [];
+        const prevCountMap: Record<string, number> = {};
+
+        prevItems.forEach((p) => {
+          prevCountMap[p.name] = (prevCountMap[p.name] || 0) + p.quantity;
+          updatedList.push({
+            name: p.name,
+            quantity: p.quantity,
+            price: p.price,
+            round: p.round || 1,
+          });
+        });
+
+        // Add newly added items with next round tag
+        cart.forEach((cItem) => {
+          const prevQty = prevCountMap[cItem.name] || 0;
+          if (cItem.quantity > prevQty) {
+            const extraQty = cItem.quantity - prevQty;
+            updatedList.push({
+              name: cItem.name,
+              quantity: extraQty,
+              price: cItem.price,
+              round: nextRound,
+            });
+          }
+        });
+
         const { error: updateError } = await supabase
           .from("orders")
           .update({
-            items: formattedItems,
+            items: updatedList,
             total_amount: grandTotal,
             status: "Pending",
           })
@@ -349,6 +314,14 @@ export default function RestaurantPOS() {
 
         if (updateError) throw updateError;
       } else {
+        // Round 1 Fresh Order
+        const formattedItems = cart.map((item) => ({
+          name: item.name,
+          quantity: Number(item.quantity),
+          price: Number(item.price),
+          round: 1,
+        }));
+
         const { data: inserted, error: insertError } = await supabase
           .from("orders")
           .insert([
@@ -371,10 +344,6 @@ export default function RestaurantPOS() {
       isEditingManually.current = false;
       setKotSuccess(true);
       fetchLiveOrders();
-
-      // Run inventory deduct asynchronously
-      deductInventoryStock(cart);
-
       setTimeout(() => setKotSuccess(false), 2500);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Network error";
@@ -384,7 +353,7 @@ export default function RestaurantPOS() {
     }
   };
 
-  // Settle single combined bill
+  // Settle Bill
   const finalizeOrderWithPayment = async (mode: "Cash" | "Online") => {
     if (cart.length === 0) return;
     setLoading(true);
@@ -421,7 +390,6 @@ export default function RestaurantPOS() {
         ]);
 
         if (error) throw error;
-        deductInventoryStock(cart);
       }
 
       setShowPaymentModal(false);
@@ -445,7 +413,7 @@ export default function RestaurantPOS() {
 
   return (
     <div className="flex h-screen bg-[#F8FAFC] font-sans text-slate-800 antialiased overflow-hidden">
-      {/* 80mm SINGLE COMBINED Print Receipt */}
+      {/* 80mm Print Receipt */}
       <div id="printable-receipt">
         <div className="text-center pb-2 border-b border-dashed border-black">
           <h2 className="font-bold text-base tracking-wider">TAX INVOICE</h2>

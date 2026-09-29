@@ -8,7 +8,6 @@ import {
   Plus,
   Minus,
   CheckCircle,
-  Sparkles,
 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 
@@ -142,7 +141,6 @@ function OrderContent() {
     setLoading(true);
 
     try {
-      // 1. Check if table has an ongoing active bill
       const { data: existingOrders, error: fetchErr } = await supabase
         .from("orders")
         .select("*")
@@ -155,11 +153,9 @@ function OrderContent() {
       if (fetchErr) throw fetchErr;
 
       if (existingOrders && existingOrders.length > 0) {
-        // ROUND 2+ : Merge items into ongoing bill with next round tag
         const existingOrder = existingOrders[0];
         const currentItems: OrderItemData[] = Array.isArray(existingOrder.items) ? existingOrder.items : [];
 
-        // Determine current max round
         const currentMaxRound = currentItems.reduce((max, it) => Math.max(max, it.round || 1), 1);
         const nextRound = currentMaxRound + 1;
 
@@ -182,14 +178,13 @@ function OrderContent() {
           .update({
             items: updatedItemsList,
             total_amount: newTotal,
-            status: "Pending", // Triggers kitchen alert for round 2
+            status: "Pending",
           })
           .eq("id", existingOrder.id);
 
         if (updateErr) throw updateErr;
         setOrderNotification(`Round ${nextRound} order kitchen ko bhej diya gaya hai!`);
       } else {
-        // ROUND 1: Fresh bill creation
         const freshItems: OrderItemData[] = cart.map((item) => ({
           name: item.name,
           quantity: Number(item.quantity),
@@ -215,7 +210,7 @@ function OrderContent() {
       setTimeout(() => setOrderNotification(""), 4000);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Error";
-      alert("Order place karne mein issue aaya: " + message);
+      alert("Order place karne mein dikkat: " + message);
     } finally {
       setLoading(false);
     }
@@ -245,7 +240,7 @@ function OrderContent() {
           <CheckCircle className="w-6 h-6 text-emerald-600 shrink-0" />
           <div>
             <p className="text-xs font-bold">{orderNotification}</p>
-            <p className="text-[11px] text-emerald-700">Khana khatam hone par aap aur items bhi add kar sakte hain.</p>
+            <p className="text-[11px] text-emerald-700">Khana kitchen mein prepare ho raha hai.</p>
           </div>
         </div>
       )}
