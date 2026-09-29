@@ -18,7 +18,6 @@ import {
   X,
   RotateCcw,
   Layers,
-  AlertTriangle,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -32,12 +31,13 @@ interface MenuItem {
 
 interface CartItem extends MenuItem {
   quantity: number;
+  round?: number;
 }
 
 interface DBOrder {
   id: number;
   table_number: string;
-  items: { name: string; quantity: number; price: number }[];
+  items: { name: string; quantity: number; price: number; round?: number }[];
   status: string;
   total_amount: number;
   payment_mode?: string;
@@ -139,16 +139,13 @@ export default function RestaurantPOS() {
   const [loading, setLoading] = useState<boolean>(false);
   const [orderSuccess, setOrderSuccess] = useState<boolean>(false);
 
-  // Active Live Orders & Ignored state
   const [activeOrders, setActiveOrders] = useState<DBOrder[]>([]);
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [ignoredOrderIds, setIgnoredOrderIds] = useState<number[]>([]);
 
-  // Payment states
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
   const [confirmedPaymentMode, setConfirmedPaymentMode] = useState<string>("Cash");
 
-  // Fetch pending orders
   const fetchLiveOrders = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -167,39 +164,43 @@ export default function RestaurantPOS() {
 
   useEffect(() => {
     fetchLiveOrders();
-    const interval = setInterval(fetchLiveOrders, 4000);
+    const interval = setInterval(fetchLiveOrders, 3000);
     return () => clearInterval(interval);
   }, [fetchLiveOrders]);
 
-  // Load or Merge items for selected table
+  // Load and consolidate all items for the table into 1 single bill
   const loadOrderForTable = useCallback(
     (tableNum: string, currentOrders: DBOrder[], ignoredList: number[]) => {
-      // Find orders for this table
-      const matchingOrders = currentOrders.filter(
-        (o) => o.table_number === tableNum && o.status !== "Completed" && !ignoredList.includes(o.id)
+      const cleanNum = tableNum.replace("T-", "");
+      const matching = currentOrders.filter(
+        (o) =>
+          (o.table_number === tableNum || o.table_number === cleanNum) &&
+          o.status !== "Completed" &&
+          !ignoredList.includes(o.id)
       );
 
-      if (matchingOrders.length > 0) {
-        // Use primary active order ID
-        setActiveOrderId(matchingOrders[0].id);
+      if (matching.length > 0) {
+        setActiveOrderId(matching[0].id);
 
-        // Merge items across multiple rounds/orders for this table
-        const combinedItemsMap: Record<string, { qty: number; price: number }> = {};
-        matchingOrders.forEach((ord) => {
-          ord.items.forEach((it) => {
-            if (!combinedItemsMap[it.name]) {
-              combinedItemsMap[it.name] = { qty: 0, price: Number(it.price) };
-            }
-            combinedItemsMap[it.name].qty += Number(it.quantity);
-          });
+        // Group same dishes together across all rounds
+        const map: Record<string, { qty: number; price: number }> = {};
+        matching.forEach((ord) => {
+          if (Array.isArray(ord.items)) {
+            ord.items.forEach((it) => {
+              if (!map[it.name]) {
+                map[it.name] = { qty: 0, price: Number(it.price) };
+              }
+              map[it.name].qty += Number(it.quantity);
+            });
+          }
         });
 
-        const mapped: CartItem[] = Object.entries(combinedItemsMap).map(([name, val], idx) => {
+        const mapped: CartItem[] = Object.entries(map).map(([name, val], idx) => {
           const menuItem = MENU_DATA.find((m) => m.name === name);
           return {
-            id: menuItem ? menuItem.id : 5000 + idx,
+            id: menuItem ? menuItem.id : 7000 + idx,
             name,
-            category: menuItem ? menuItem.category : "Custom",
+            category: menuItem ? menuItem.category : "Food",
             price: val.price,
             quantity: val.qty,
             image: menuItem ? menuItem.image : "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=400&q=80",
@@ -221,10 +222,8 @@ export default function RestaurantPOS() {
   };
 
   useEffect(() => {
-    if (!activeOrderId && cart.length === 0) {
-      loadOrderForTable(selectedTable, activeOrders, ignoredOrderIds);
-    }
-  }, [activeOrders, selectedTable, activeOrderId, cart.length, ignoredOrderIds, loadOrderForTable]);
+    loadOrderForTable(selectedTable, activeOrders, ignoredOrderIds);
+  }, [activeOrders, selectedTable, ignoredOrderIds, loadOrderForTable]);
 
   const handleClearBlankBill = () => {
     if (activeOrderId) {
@@ -305,14 +304,12 @@ export default function RestaurantPOS() {
     }
   };
 
-  // Add more items to existing ongoing table order or create new KOT
   const handleSendToKitchenOrAppend = async () => {
     if (cart.length === 0) return;
     setLoading(true);
 
     try {
       if (activeOrderId) {
-        // Append / Update ongoing order
         const { error } = await supabase
           .from("orders")
           .update({
@@ -324,7 +321,6 @@ export default function RestaurantPOS() {
 
         if (error) throw error;
       } else {
-        // Create fresh order
         const { error } = await supabase.from("orders").insert([
           {
             table_number: selectedTable,
@@ -347,14 +343,14 @@ export default function RestaurantPOS() {
       await fetchLiveOrders();
       setTimeout(() => setOrderSuccess(false), 2000);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Order placement failed";
+      const message = err instanceof Error ? err.message : "Error";
       alert("Error: " + message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Final Payment settlement
+  // Final Payment settlement: Prints 1 single combined invoice
   const finalizeOrderWithPayment = async (mode: "Cash" | "Online") => {
     if (cart.length === 0) return;
     setLoading(true);
@@ -395,6 +391,7 @@ export default function RestaurantPOS() {
       setShowPaymentModal(false);
       setOrderSuccess(true);
 
+      // Print Single Final Bill
       setTimeout(() => window.print(), 300);
 
       setTimeout(() => {
@@ -412,11 +409,11 @@ export default function RestaurantPOS() {
 
   return (
     <div className="flex h-screen bg-[#F8FAFC] font-sans text-slate-800 antialiased overflow-hidden">
-      {/* 80mm Print Receipt */}
+      {/* 80mm SINGLE COMBINED Print Receipt */}
       <div id="printable-receipt">
         <div className="text-center pb-2 border-b border-dashed border-black">
           <h2 className="font-bold text-base tracking-wider">TAX INVOICE</h2>
-          <p className="text-[11px] text-gray-700">Dine-in Order Receipt</p>
+          <p className="text-[11px] text-gray-700">Final Dine-in Bill</p>
         </div>
 
         <div className="text-[11px] py-2 border-b border-dashed border-black space-y-0.5">
@@ -428,11 +425,6 @@ export default function RestaurantPOS() {
             <span>Time: {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
             <span>Payment: <strong>{confirmedPaymentMode.toUpperCase()}</strong></span>
           </div>
-          {activeOrderId && (
-            <div className="text-[10px] text-gray-600">
-              <span>Token: #{activeOrderId}</span>
-            </div>
-          )}
         </div>
 
         <table className="w-full text-[11px] my-2">
@@ -463,7 +455,7 @@ export default function RestaurantPOS() {
           </div>
           <div className="flex justify-between">
             <span>GST (5%):</span>
-            <span>₹{gst.toFixed(2)}</span>
+            <span>₹{(gst).toFixed(2)}</span>
           </div>
           <div className="flex justify-between font-bold text-xs pt-1 border-t border-black">
             <span>Grand Total:</span>
@@ -480,27 +472,25 @@ export default function RestaurantPOS() {
         </div>
       </div>
 
-      {/* Main Spacious POS Center Screen */}
+      {/* POS Left Screen */}
       <div className="flex-1 flex flex-col p-8 overflow-hidden">
-        {/* Top Floating App Bar */}
-        <header className="flex justify-between items-center mb-8 bg-white/80 backdrop-blur-md p-4 px-6 rounded-3xl border border-slate-200/60 shadow-xs">
+        <header className="flex justify-between items-center mb-6 bg-white p-4 px-6 rounded-3xl border border-slate-200/60 shadow-xs">
           <div className="flex items-center space-x-3.5">
             <div className="p-3 bg-linear-to-tr from-orange-500 to-amber-500 text-white rounded-2xl shadow-sm">
               <Utensils className="w-5 h-5" />
             </div>
             <div>
               <h1 className="text-lg font-black tracking-tight text-slate-900">RestoSync POS</h1>
-              <p className="text-xs text-slate-400 font-medium">Smart Table & Kitchen Management</p>
+              <p className="text-xs text-slate-400 font-medium">Single Final Bill System</p>
             </div>
           </div>
 
-          {/* Navigation Links */}
           <div className="flex items-center gap-2">
             <a
               href="/inventory"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200/80 transition"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition"
             >
               <Package className="w-4 h-4 text-orange-500" />
               <span>Inventory</span>
@@ -510,7 +500,7 @@ export default function RestaurantPOS() {
               href="/tables"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200/80 transition"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition"
             >
               <QrCode className="w-4 h-4 text-orange-500" />
               <span>Table QRs</span>
@@ -520,7 +510,7 @@ export default function RestaurantPOS() {
               href="/reports"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200/80 transition"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition"
             >
               <BarChart3 className="w-4 h-4 text-orange-500" />
               <span>Reports</span>
@@ -533,18 +523,22 @@ export default function RestaurantPOS() {
               className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs"
             >
               <ChefHat className="w-4 h-4 text-amber-400" />
-              <span>Kitchen KOT ↗</span>
+              <span>Kitchen Screen ↗</span>
             </a>
           </div>
         </header>
 
-        {/* Clean Table Chips Selector */}
+        {/* Table Selector */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2 overflow-x-auto py-1">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">Tables:</span>
             {TABLES.map((table) => {
+              const clean = table.replace("T-", "");
               const matching = activeOrders.filter(
-                (o) => o.table_number === table && o.status !== "Completed" && !ignoredOrderIds.includes(o.id)
+                (o) =>
+                  (o.table_number === table || o.table_number === clean) &&
+                  o.status !== "Completed" &&
+                  !ignoredOrderIds.includes(o.id)
               );
               const hasActiveQR = matching.length > 0;
               const isSelected = selectedTable === table;
@@ -557,8 +551,8 @@ export default function RestaurantPOS() {
                     isSelected
                       ? "bg-orange-500 text-white shadow-orange-500/25 shadow-md scale-105"
                       : hasActiveQR
-                      ? "bg-amber-100/90 text-amber-900 border border-amber-300 hover:bg-amber-200"
-                      : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
+                      ? "bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200"
+                      : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                   }`}
                 >
                   <span>{table}</span>
@@ -573,8 +567,7 @@ export default function RestaurantPOS() {
             })}
           </div>
 
-          {/* Category Pills */}
-          <div className="flex gap-1.5 bg-white p-1 rounded-2xl border border-slate-200/80 shadow-2xs">
+          <div className="flex gap-1.5 bg-white p-1 rounded-2xl border border-slate-200 shadow-2xs">
             {CATEGORIES.map((cat) => (
               <button
                 key={cat}
@@ -591,7 +584,7 @@ export default function RestaurantPOS() {
           </div>
         </div>
 
-        {/* Clean Food Cards Grid */}
+        {/* Dishes Grid */}
         <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5 pr-1.5">
           {filteredMenu.map((item) => (
             <div
@@ -624,18 +617,15 @@ export default function RestaurantPOS() {
         </div>
       </div>
 
-      {/* Right Modern Clean Cart Sidebar */}
+      {/* Single Final Bill Sidebar */}
       <div className="w-[400px] bg-white border-l border-slate-200/80 flex flex-col shadow-sm">
-        {/* Cart Top Header */}
         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
           <div className="flex items-center space-x-2.5">
             <div className="p-2 bg-orange-100 text-orange-600 rounded-xl">
               <ShoppingCart className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="font-extrabold text-slate-900 text-base">
-                {activeOrderId ? `Order #${activeOrderId}` : "Current Bill"}
-              </h2>
+              <h2 className="font-extrabold text-slate-900 text-base">Final Combined Bill</h2>
               <p className="text-[11px] text-slate-400 font-medium">Table {selectedTable}</p>
             </div>
           </div>
@@ -656,16 +646,16 @@ export default function RestaurantPOS() {
           </div>
         </div>
 
-        {/* Cart Items List */}
+        {/* Combined Items List */}
         <div className="flex-1 overflow-y-auto p-6 space-y-3">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6">
               <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-3">
                 <ShoppingCart className="w-7 h-7 text-slate-300" />
               </div>
-              <p className="text-sm font-bold text-slate-700">Bill is empty</p>
+              <p className="text-sm font-bold text-slate-700">No active bill for {selectedTable}</p>
               <p className="text-xs text-slate-400 mt-1 max-w-[200px]">
-                Click on any dish to start or select a table with active QR orders
+                Scan QR or tap dishes to create order
               </p>
             </div>
           ) : (
@@ -709,7 +699,7 @@ export default function RestaurantPOS() {
           )}
         </div>
 
-        {/* Bill Summary Footer */}
+        {/* Combined Footer */}
         <div className="p-6 bg-slate-50/90 border-t border-slate-200/60 space-y-2.5">
           <div className="flex justify-between text-xs text-slate-500">
             <span>Subtotal</span>
@@ -724,7 +714,6 @@ export default function RestaurantPOS() {
             <span className="text-orange-600">₹{grandTotal.toFixed(2)}</span>
           </div>
 
-          {/* Action Buttons */}
           <div className="pt-3 grid grid-cols-2 gap-3">
             <button
               onClick={() => window.print()}
@@ -732,7 +721,7 @@ export default function RestaurantPOS() {
               className="flex items-center justify-center gap-2 py-3 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold rounded-2xl disabled:opacity-40 transition shadow-2xs"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Bill</span>
+              <span>Print 1 Bill</span>
             </button>
 
             <button
@@ -745,7 +734,7 @@ export default function RestaurantPOS() {
               ) : orderSuccess ? (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Done!</span>
+                  <span>Settled!</span>
                 </>
               ) : (
                 <>
@@ -756,7 +745,6 @@ export default function RestaurantPOS() {
             </button>
           </div>
 
-          {/* Round 2 / Add Items to ongoing table */}
           {cart.length > 0 && (
             <button
               onClick={handleSendToKitchenOrAppend}
@@ -764,20 +752,20 @@ export default function RestaurantPOS() {
               className="w-full mt-1 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition flex items-center justify-center gap-1.5"
             >
               <Layers className="w-3.5 h-3.5 text-orange-500" />
-              <span>{activeOrderId ? "Update & Send Round 2 to Kitchen" : "Send to Kitchen Only (Unpaid)"}</span>
+              <span>Send Round to Kitchen (Unpaid)</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Payment Selection Modal Popup */}
+      {/* Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl p-7 w-full max-w-sm shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
               <div>
                 <h3 className="font-extrabold text-lg text-slate-900">Payment Collection</h3>
-                <p className="text-xs text-slate-400 font-medium">Table: {selectedTable} • Amount: ₹{grandTotal}</p>
+                <p className="text-xs text-slate-400 font-medium">Table: {selectedTable} • Total: ₹{grandTotal}</p>
               </div>
               <button
                 onClick={() => setShowPaymentModal(false)}
@@ -786,10 +774,6 @@ export default function RestaurantPOS() {
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            <p className="text-xs text-slate-500 mb-5 text-center">
-              Customer se poochkar payment method select karein:
-            </p>
 
             <div className="grid grid-cols-2 gap-3 mb-2">
               <button
@@ -801,7 +785,6 @@ export default function RestaurantPOS() {
                   <Banknote className="w-6 h-6" />
                 </div>
                 <span className="text-sm">Cash</span>
-                <span className="text-[11px] text-emerald-600 font-medium mt-0.5">Counter Cash</span>
               </button>
 
               <button
@@ -813,7 +796,6 @@ export default function RestaurantPOS() {
                   <CreditCard className="w-6 h-6" />
                 </div>
                 <span className="text-sm">Online / UPI</span>
-                <span className="text-[11px] text-blue-600 font-medium mt-0.5">QR / Card / UPI</span>
               </button>
             </div>
           </div>

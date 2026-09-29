@@ -7,8 +7,8 @@ import {
   ShoppingCart,
   Plus,
   Minus,
-  Trash2,
   CheckCircle,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 
@@ -22,6 +22,13 @@ interface MenuItem {
 
 interface CartItem extends MenuItem {
   quantity: number;
+}
+
+interface OrderItemData {
+  name: string;
+  quantity: number;
+  price: number;
+  round?: number;
 }
 
 const MENU_DATA: MenuItem[] = [
@@ -87,12 +94,13 @@ const CATEGORIES = ["All", "Main Course", "Breads", "Rice", "Beverages"];
 
 function OrderContent() {
   const searchParams = useSearchParams();
-  const tableNumber = searchParams.get("table") || "T-1";
+  const rawTable = searchParams.get("table") || "T-1";
+  const tableNumber = rawTable.startsWith("T-") ? rawTable : `T-${rawTable}`;
 
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [orderPlaced, setOrderPlaced] = useState<boolean>(false);
+  const [orderNotification, setOrderNotification] = useState<string>("");
 
   const addToCart = (item: MenuItem) => {
     setCart((prev) => {
@@ -120,10 +128,6 @@ function OrderContent() {
     );
   };
 
-  const removeItem = (id: number) => {
-    setCart((prev) => prev.filter((item) => item.id !== id));
-  };
-
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
   const gst = Math.round(subtotal * 0.05);
   const grandTotal = subtotal + gst;
@@ -138,6 +142,7 @@ function OrderContent() {
     setLoading(true);
 
     try {
+      // 1. Check if table has an ongoing active bill
       const { data: existingOrders, error: fetchErr } = await supabase
         .from("orders")
         .select("*")
@@ -150,49 +155,52 @@ function OrderContent() {
       if (fetchErr) throw fetchErr;
 
       if (existingOrders && existingOrders.length > 0) {
+        // ROUND 2+ : Merge items into ongoing bill with next round tag
         const existingOrder = existingOrders[0];
-        const currentItems = Array.isArray(existingOrder.items) ? existingOrder.items : [];
-        const combinedItems = [...currentItems];
+        const currentItems: OrderItemData[] = Array.isArray(existingOrder.items) ? existingOrder.items : [];
 
-        cart.forEach((newCartItem) => {
-          const itemIdx = combinedItems.findIndex((i: { name: string }) => i.name === newCartItem.name);
-          if (itemIdx > -1) {
-            combinedItems[itemIdx].quantity =
-              Number(combinedItems[itemIdx].quantity) + Number(newCartItem.quantity);
-          } else {
-            combinedItems.push({
-              name: newCartItem.name,
-              quantity: Number(newCartItem.quantity),
-              price: Number(newCartItem.price),
-            });
-          }
+        // Determine current max round
+        const currentMaxRound = currentItems.reduce((max, it) => Math.max(max, it.round || 1), 1);
+        const nextRound = currentMaxRound + 1;
+
+        const updatedItemsList = [...currentItems];
+
+        cart.forEach((newIt) => {
+          updatedItemsList.push({
+            name: newIt.name,
+            quantity: Number(newIt.quantity),
+            price: Number(newIt.price),
+            round: nextRound,
+          });
         });
 
-        const newSubtotal = combinedItems.reduce(
-          (sum: number, it: { price: number; quantity: number }) => sum + it.price * it.quantity,
-          0
-        );
-        const newGrandTotal = Math.round(newSubtotal * 1.05);
+        const newSub = updatedItemsList.reduce((sum, it) => sum + it.price * it.quantity, 0);
+        const newTotal = Math.round(newSub * 1.05);
 
         const { error: updateErr } = await supabase
           .from("orders")
           .update({
-            items: combinedItems,
-            total_amount: newGrandTotal,
-            status: "Pending",
+            items: updatedItemsList,
+            total_amount: newTotal,
+            status: "Pending", // Triggers kitchen alert for round 2
           })
           .eq("id", existingOrder.id);
 
         if (updateErr) throw updateErr;
+        setOrderNotification(`Round ${nextRound} order kitchen ko bhej diya gaya hai!`);
       } else {
+        // ROUND 1: Fresh bill creation
+        const freshItems: OrderItemData[] = cart.map((item) => ({
+          name: item.name,
+          quantity: Number(item.quantity),
+          price: Number(item.price),
+          round: 1,
+        }));
+
         const { error: insertErr } = await supabase.from("orders").insert([
           {
             table_number: tableNumber,
-            items: cart.map((item) => ({
-              name: item.name,
-              quantity: Number(item.quantity),
-              price: Number(item.price),
-            })),
+            items: freshItems,
             status: "Pending",
             total_amount: grandTotal,
             payment_mode: "Pending",
@@ -200,14 +208,14 @@ function OrderContent() {
         ]);
 
         if (insertErr) throw insertErr;
+        setOrderNotification("Order kitchen ko bhej diya gaya hai!");
       }
 
-      setOrderPlaced(true);
       setCart([]);
-      setTimeout(() => setOrderPlaced(false), 4000);
+      setTimeout(() => setOrderNotification(""), 4000);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Network issue";
-      alert("Order place karne mein dikkat aayi: " + message);
+      const message = err instanceof Error ? err.message : "Error";
+      alert("Order place karne mein issue aaya: " + message);
     } finally {
       setLoading(false);
     }
@@ -215,7 +223,6 @@ function OrderContent() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-28">
-      {/* Top Header */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3.5 flex justify-between items-center shadow-xs">
         <div className="flex items-center space-x-2.5">
           <div className="p-2 bg-orange-500 text-white rounded-xl shadow-xs">
@@ -227,24 +234,22 @@ function OrderContent() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 bg-orange-100/80 text-orange-800 font-extrabold px-3 py-1 rounded-xl text-xs border border-orange-200">
+        <div className="flex items-center gap-1.5 bg-orange-100 text-orange-900 font-extrabold px-3 py-1 rounded-xl text-xs border border-orange-200">
           <span>Table:</span>
-          <span className="text-orange-950 font-black">{tableNumber}</span>
+          <span className="font-black">{tableNumber}</span>
         </div>
       </header>
 
-      {/* Success Banner */}
-      {orderPlaced && (
+      {orderNotification && (
         <div className="mx-4 mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-900 shadow-xs animate-in fade-in">
           <CheckCircle className="w-6 h-6 text-emerald-600 shrink-0" />
           <div>
-            <p className="text-xs font-bold">Order Received in Kitchen!</p>
-            <p className="text-[11px] text-emerald-700">Aapka khana prepare ho raha hai.</p>
+            <p className="text-xs font-bold">{orderNotification}</p>
+            <p className="text-[11px] text-emerald-700">Khana khatam hone par aap aur items bhi add kar sakte hain.</p>
           </div>
         </div>
       )}
 
-      {/* Categories */}
       <div className="px-4 py-3 flex gap-2 overflow-x-auto no-scrollbar">
         {CATEGORIES.map((cat) => (
           <button
@@ -261,7 +266,6 @@ function OrderContent() {
         ))}
       </div>
 
-      {/* Food Items List */}
       <div className="px-4 space-y-3 mt-1">
         {filteredMenu.map((item) => {
           const inCart = cart.find((c) => c.id === item.id);
@@ -275,7 +279,7 @@ function OrderContent() {
                 <img
                   src={item.image}
                   alt={item.name}
-                  className="w-18 h-18 rounded-xl object-cover shrink-0 bg-slate-100"
+                  className="w-16 h-16 rounded-xl object-cover shrink-0 bg-slate-100"
                 />
                 <div className="min-w-0">
                   <h3 className="font-bold text-xs text-slate-800 truncate">{item.name}</h3>
@@ -317,17 +321,15 @@ function OrderContent() {
         })}
       </div>
 
-      {/* Floating Bottom Cart Bar */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg z-40">
           <div className="max-w-md mx-auto flex items-center justify-between gap-4">
             <div>
               <p className="text-[11px] text-slate-500 font-medium">
-                {cart.reduce((sum, i) => sum + i.quantity, 0)} Items Added
+                {cart.reduce((sum, i) => sum + i.quantity, 0)} Items Selected
               </p>
               <p className="text-base font-black text-slate-900">
-                ₹{grandTotal}{" "}
-                <span className="text-[10px] font-normal text-slate-400">(incl. GST)</span>
+                ₹{grandTotal} <span className="text-[10px] font-normal text-slate-400">(incl. GST)</span>
               </p>
             </div>
 
@@ -341,7 +343,7 @@ function OrderContent() {
               ) : (
                 <>
                   <ShoppingCart className="w-4 h-4" />
-                  <span>Place Order / Send KOT</span>
+                  <span>Send to Kitchen / KOT</span>
                 </>
               )}
             </button>
