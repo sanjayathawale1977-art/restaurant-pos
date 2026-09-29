@@ -144,7 +144,6 @@ export default function RestaurantPOS() {
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [ignoredOrderIds, setIgnoredOrderIds] = useState<number[]>([]);
 
-  // Ref to track if user is manually adding/editing cart so auto-sync doesn't wipe it
   const isEditingManually = useRef<boolean>(false);
 
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
@@ -173,10 +172,8 @@ export default function RestaurantPOS() {
     return () => clearInterval(interval);
   }, [fetchLiveOrders]);
 
-  // Load order for table
   const loadOrderForTable = useCallback(
     (tableNum: string, currentOrders: DBOrder[], ignoredList: number[]) => {
-      // Agar staff manually cart banaye hue hai aur KOT nahi bheja, toh overwrite mat karo
       if (isEditingManually.current) return;
 
       const cleanNum = tableNum.replace("T-", "");
@@ -285,39 +282,49 @@ export default function RestaurantPOS() {
       ? MENU_DATA
       : MENU_DATA.filter((i) => i.category === selectedCategory);
 
+  // Background Inventory update (Screen atkaye bina)
   const deductInventoryStock = async (orderedCart: CartItem[]) => {
-    const usageMap: Record<string, number> = {};
+    try {
+      const usageMap: Record<string, number> = {};
 
-    orderedCart.forEach((cartItem) => {
-      const recipe = RECIPES[cartItem.name];
-      if (recipe) {
-        recipe.forEach((ing) => {
-          usageMap[ing.ingredient] = (usageMap[ing.ingredient] || 0) + ing.qty * cartItem.quantity;
-        });
-      }
-    });
+      orderedCart.forEach((cartItem) => {
+        const recipe = RECIPES[cartItem.name];
+        if (recipe) {
+          recipe.forEach((ing) => {
+            usageMap[ing.ingredient] = (usageMap[ing.ingredient] || 0) + ing.qty * cartItem.quantity;
+          });
+        }
+      });
 
-    for (const [ingredientName, usedQty] of Object.entries(usageMap)) {
-      const { data } = await supabase
+      const ingredientNames = Object.keys(usageMap);
+      if (ingredientNames.length === 0) return;
+
+      const { data: stockItems } = await supabase
         .from("inventory_items")
-        .select("id, current_stock")
-        .eq("name", ingredientName)
-        .single();
+        .select("id, name, current_stock")
+        .in("name", ingredientNames);
 
-      if (data) {
-        const remainingStock = Math.max(0, Number(data.current_stock) - usedQty);
-        await supabase
-          .from("inventory_items")
-          .update({
-            current_stock: Number(remainingStock.toFixed(2)),
-            updated_at: new Date().toISOString(),
+      if (stockItems && stockItems.length > 0) {
+        await Promise.all(
+          stockItems.map((item) => {
+            const used = usageMap[item.name] || 0;
+            const remaining = Math.max(0, Number(item.current_stock) - used);
+            return supabase
+              .from("inventory_items")
+              .update({
+                current_stock: Number(remaining.toFixed(2)),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", item.id);
           })
-          .eq("id", data.id);
+        );
       }
+    } catch (e) {
+      console.warn("Inventory background update notice:", e);
     }
   };
 
-  // SEND TO KOT (STAFF MANUAL ORDER FIX)
+  // Instant KOT Submission
   const handleSendToKitchenOrAppend = async () => {
     if (cart.length === 0) return;
     setLoading(true);
@@ -331,8 +338,7 @@ export default function RestaurantPOS() {
       }));
 
       if (activeOrderId) {
-        // Ongoing order update
-        const { error } = await supabase
+        const { error: updateError } = await supabase
           .from("orders")
           .update({
             items: formattedItems,
@@ -341,10 +347,9 @@ export default function RestaurantPOS() {
           })
           .eq("id", activeOrderId);
 
-        if (error) throw error;
+        if (updateError) throw updateError;
       } else {
-        // New order insertion
-        const { data, error } = await supabase
+        const { data: inserted, error: insertError } = await supabase
           .from("orders")
           .insert([
             {
@@ -355,24 +360,25 @@ export default function RestaurantPOS() {
               payment_mode: "Pending",
             },
           ])
-          .select();
+          .select("id");
 
-        if (error) throw error;
-        if (data && data.length > 0) {
-          setActiveOrderId(data[0].id);
+        if (insertError) throw insertError;
+        if (inserted && inserted.length > 0) {
+          setActiveOrderId(inserted[0].id);
         }
       }
 
-      await deductInventoryStock(cart);
       isEditingManually.current = false;
       setKotSuccess(true);
-      await fetchLiveOrders();
+      fetchLiveOrders();
 
-      // Show confirmation banner
+      // Run inventory deduct asynchronously
+      deductInventoryStock(cart);
+
       setTimeout(() => setKotSuccess(false), 2500);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "KOT save failed";
-      alert("Error sending to KOT: " + message);
+      const message = err instanceof Error ? err.message : "Network error";
+      alert("KOT error: " + message);
     } finally {
       setLoading(false);
     }
@@ -415,14 +421,13 @@ export default function RestaurantPOS() {
         ]);
 
         if (error) throw error;
-        await deductInventoryStock(cart);
+        deductInventoryStock(cart);
       }
 
       setShowPaymentModal(false);
       setOrderSuccess(true);
       isEditingManually.current = false;
 
-      // Print bill
       setTimeout(() => window.print(), 300);
 
       setTimeout(() => {
@@ -486,7 +491,7 @@ export default function RestaurantPOS() {
           </div>
           <div className="flex justify-between">
             <span>GST (5%):</span>
-            <span>₹{gst.toFixed(2)}</span>
+            <span>₹{(gst).toFixed(2)}</span>
           </div>
           <div className="flex justify-between font-bold text-xs pt-1 border-t border-black">
             <span>Grand Total:</span>
@@ -679,7 +684,6 @@ export default function RestaurantPOS() {
           </div>
         </div>
 
-        {/* KOT Success Alert */}
         {kotSuccess && (
           <div className="mx-6 mt-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -687,7 +691,6 @@ export default function RestaurantPOS() {
           </div>
         )}
 
-        {/* Cart Items List */}
         <div className="flex-1 overflow-y-auto p-6 space-y-3">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6">
@@ -740,7 +743,6 @@ export default function RestaurantPOS() {
           )}
         </div>
 
-        {/* Footer Actions */}
         <div className="p-6 bg-slate-50/90 border-t border-slate-200/60 space-y-2.5">
           <div className="flex justify-between text-xs text-slate-500">
             <span>Subtotal</span>
@@ -786,7 +788,6 @@ export default function RestaurantPOS() {
             </button>
           </div>
 
-          {/* Send To KOT Button (Does not vanish anymore) */}
           {cart.length > 0 && (
             <button
               onClick={handleSendToKitchenOrAppend}
