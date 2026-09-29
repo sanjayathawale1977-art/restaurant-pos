@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   DollarSign,
-  ShoppingBag,
   TrendingUp,
   Utensils,
   RefreshCw,
@@ -11,6 +10,7 @@ import {
   ArrowLeft,
   Banknote,
   CreditCard,
+  Clock,
 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 
@@ -33,6 +33,7 @@ interface OrderRecord {
 export default function ReportsDashboard() {
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [timeFilter, setTimeFilter] = useState<"today" | "all">("today");
 
   const fetchSalesData = async () => {
     setLoading(true);
@@ -51,23 +52,33 @@ export default function ReportsDashboard() {
     fetchSalesData();
   }, []);
 
-  // 1. Calculations
-  const totalRevenue = orders.reduce((sum, order) => sum + (Number(order.total_amount) || 0), 0);
-  const totalOrders = orders.length;
+  // Filter Orders based on Today vs All Time
+  const filteredOrders = useMemo(() => {
+    if (timeFilter === "all") return orders;
+
+    const todayStr = new Date().toDateString();
+    return orders.filter((o) => {
+      const orderDate = new Date(o.created_at).toDateString();
+      return orderDate === todayStr;
+    });
+  }, [orders, timeFilter]);
+
+  // Calculations
+  const totalRevenue = filteredOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+  const totalOrders = filteredOrders.length;
   const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
 
-  // Cash vs Online Breakdown
-  const cashTotal = orders
+  const cashTotal = filteredOrders
     .filter((o) => (o.payment_mode || "Cash").toLowerCase() === "cash")
     .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
-  const onlineTotal = orders
+  const onlineTotal = filteredOrders
     .filter((o) => (o.payment_mode || "").toLowerCase() === "online")
     .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
-  // 2. Dish Popularity
+  // Top Selling items
   const itemSalesMap: Record<string, { qty: number; revenue: number }> = {};
-  orders.forEach((order) => {
+  filteredOrders.forEach((order) => {
     if (Array.isArray(order.items)) {
       order.items.forEach((item) => {
         if (!itemSalesMap[item.name]) {
@@ -85,30 +96,51 @@ export default function ReportsDashboard() {
     .slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 p-6 font-sans">
-      {/* Top Header */}
-      <div className="flex justify-between items-center mb-8 border-b border-slate-200 pb-4">
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-orange-500 rounded-xl text-white shadow">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 p-8 font-sans antialiased">
+      {/* Top Spacious Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 bg-white p-6 rounded-3xl border border-slate-200/70 shadow-xs">
+        <div className="flex items-center space-x-3.5">
+          <div className="p-3 bg-linear-to-tr from-orange-500 to-amber-500 rounded-2xl text-white shadow-sm">
             <TrendingUp className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Sales & Revenue Reports</h1>
-            <p className="text-xs text-slate-500">Live sales performance, payment modes, and dish analytics</p>
+            <h1 className="text-xl font-black text-slate-900">Revenue & Sales Insights</h1>
+            <p className="text-xs text-slate-400 font-medium">Daily shift performance & cash flow reconciliation</p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
+          {/* Today vs All-Time Filter */}
+          <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
+            <button
+              onClick={() => setTimeFilter("today")}
+              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition ${
+                timeFilter === "today" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              Today's Shift
+            </button>
+            <button
+              onClick={() => setTimeFilter("all")}
+              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition ${
+                timeFilter === "all" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              All Time
+            </button>
+          </div>
+
           <button
             onClick={fetchSalesData}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="p-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-slate-600 transition shadow-2xs"
+            title="Refresh"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            <span>Refresh</span>
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
+
           <a
             href="/"
-            className="flex items-center gap-1 text-xs text-orange-600 hover:text-orange-700 font-semibold underline underline-offset-4"
+            className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>POS Billing</span>
@@ -116,105 +148,111 @@ export default function ReportsDashboard() {
         </div>
       </div>
 
-      {/* Metric Cards - 5 Cards including Cash & Online */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Revenue</p>
-          <h3 className="text-xl font-black text-slate-900 mt-1">₹{totalRevenue.toLocaleString("en-IN")}</h3>
-          <span className="text-[10px] text-slate-400">All orders total</span>
+      {/* 5 Big Clean Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/70 shadow-xs">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Sales</p>
+          <h3 className="text-2xl font-black text-slate-900 mt-2">₹{totalRevenue.toLocaleString("en-IN")}</h3>
+          <span className="text-[11px] text-slate-400 font-medium">{timeFilter === "today" ? "Today's collection" : "Lifetime collection"}</span>
         </div>
 
-        {/* CASH COLLECTION CARD */}
-        <div className="bg-emerald-50/70 border border-emerald-200 p-4 rounded-2xl shadow-sm">
+        {/* CASH CARD */}
+        <div className="bg-emerald-50/60 border border-emerald-200/80 p-5 rounded-3xl shadow-xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Cash In Hand</p>
+            <p className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Cash In Counter</p>
             <Banknote className="w-4 h-4 text-emerald-600" />
           </div>
-          <h3 className="text-xl font-black text-emerald-900 mt-1">₹{cashTotal.toLocaleString("en-IN")}</h3>
-          <span className="text-[10px] text-emerald-600 font-medium">Physical cash collected</span>
+          <h3 className="text-2xl font-black text-emerald-950 mt-2">₹{cashTotal.toLocaleString("en-IN")}</h3>
+          <span className="text-[11px] text-emerald-700 font-medium">Physical cash in drawer</span>
         </div>
 
-        {/* ONLINE COLLECTION CARD */}
-        <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-2xl shadow-sm">
+        {/* ONLINE CARD */}
+        <div className="bg-blue-50/60 border border-blue-200/80 p-5 rounded-3xl shadow-xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Online / UPI</p>
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wider">Bank / UPI</p>
             <CreditCard className="w-4 h-4 text-blue-600" />
           </div>
-          <h3 className="text-xl font-black text-blue-900 mt-1">₹{onlineTotal.toLocaleString("en-IN")}</h3>
-          <span className="text-[10px] text-blue-600 font-medium">Bank account / UPI</span>
+          <h3 className="text-2xl font-black text-blue-950 mt-2">₹{onlineTotal.toLocaleString("en-IN")}</h3>
+          <span className="text-[11px] text-blue-700 font-medium">Transferred to bank</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Orders</p>
-          <h3 className="text-xl font-black text-slate-900 mt-1">{totalOrders}</h3>
-          <span className="text-[10px] text-slate-400">Total KOTs</span>
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/70 shadow-xs">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Orders</p>
+          <h3 className="text-2xl font-black text-slate-900 mt-2">{totalOrders}</h3>
+          <span className="text-[11px] text-slate-400 font-medium">Completed KOTs</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Avg Order Value</p>
-          <h3 className="text-xl font-black text-slate-900 mt-1">₹{avgOrderValue}</h3>
-          <span className="text-[10px] text-orange-600 font-medium">Per table average</span>
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/70 shadow-xs">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Avg Order Value</p>
+          <h3 className="text-2xl font-black text-slate-900 mt-2">₹{avgOrderValue}</h3>
+          <span className="text-[11px] text-orange-600 font-medium">Per table average</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Grid: Top Dishes & Transactions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Top Selling Dishes */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm lg:col-span-1">
-          <div className="flex items-center space-x-2 mb-4 pb-2 border-b border-slate-100">
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/70 shadow-xs">
+          <div className="flex items-center space-x-2.5 mb-5 pb-3 border-b border-slate-100">
             <Utensils className="w-4 h-4 text-orange-500" />
-            <h2 className="font-bold text-slate-900 text-sm">Top Selling Dishes</h2>
+            <h2 className="font-extrabold text-slate-900 text-sm">Top Selling Dishes</h2>
           </div>
 
           {topItems.length === 0 ? (
-            <p className="text-xs text-slate-400 py-6 text-center">No orders recorded yet.</p>
+            <p className="text-xs text-slate-400 py-8 text-center">No orders recorded in this period.</p>
           ) : (
             <div className="space-y-3">
               {topItems.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                <div key={idx} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
                   <div>
-                    <p className="font-semibold text-xs text-slate-800">{item.name}</p>
-                    <p className="text-[11px] text-slate-400">Sold: {item.qty} units</p>
+                    <p className="font-bold text-xs text-slate-800">{item.name}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{item.qty} portions sold</p>
                   </div>
-                  <span className="font-bold text-xs text-slate-900">₹{item.revenue}</span>
+                  <span className="font-extrabold text-xs text-slate-900">₹{item.revenue}</span>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Recent Orders Log with Payment Mode Badge */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
-          <div className="flex items-center space-x-2 mb-4 pb-2 border-b border-slate-100">
-            <Calendar className="w-4 h-4 text-orange-500" />
-            <h2 className="font-bold text-slate-900 text-sm">Recent Transactions & Payment Mode</h2>
+        {/* Transactions Table */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/70 shadow-xs lg:col-span-2">
+          <div className="flex items-center justify-between mb-5 pb-3 border-b border-slate-100">
+            <div className="flex items-center space-x-2.5">
+              <Calendar className="w-4 h-4 text-orange-500" />
+              <h2 className="font-extrabold text-slate-900 text-sm">Recent Transactions Log</h2>
+            </div>
+            <span className="text-xs font-semibold text-slate-400">
+              Showing {filteredOrders.length} orders
+            </span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-600">
-              <thead className="bg-slate-50 text-slate-800 uppercase tracking-wider text-[10px] font-bold border-b border-slate-200">
+              <thead className="bg-slate-50/80 text-slate-700 uppercase tracking-wider text-[10px] font-bold border-b border-slate-200/60">
                 <tr>
-                  <th className="py-2.5 px-3">Order ID</th>
-                  <th className="py-2.5 px-3">Table</th>
-                  <th className="py-2.5 px-3">Payment Mode</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3">Time</th>
-                  <th className="py-2.5 px-3 text-right">Amount</th>
+                  <th className="py-3 px-4">Order ID</th>
+                  <th className="py-3 px-4">Table</th>
+                  <th className="py-3 px-4">Mode</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Time</th>
+                  <th className="py-3 px-4 text-right">Amount</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {orders.slice(0, 10).map((order) => {
+                {filteredOrders.slice(0, 10).map((order) => {
                   const isOnline = (order.payment_mode || "").toLowerCase() === "online";
                   return (
-                    <tr key={order.id} className="hover:bg-slate-50 transition">
-                      <td className="py-3 px-3 font-semibold text-slate-900">#{order.id}</td>
-                      <td className="py-3 px-3">
-                        <span className="font-bold bg-slate-100 px-2 py-0.5 rounded text-slate-700">
+                    <tr key={order.id} className="hover:bg-slate-50/60 transition">
+                      <td className="py-3.5 px-4 font-bold text-slate-900">#{order.id}</td>
+                      <td className="py-3.5 px-4">
+                        <span className="font-bold bg-slate-100 px-2.5 py-1 rounded-lg text-slate-700">
                           {order.table_number}
                         </span>
                       </td>
-                      <td className="py-3 px-3">
+                      <td className="py-3.5 px-4">
                         <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                          className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold ${
                             isOnline
                               ? "bg-blue-100 text-blue-700 border border-blue-200"
                               : "bg-emerald-100 text-emerald-700 border border-emerald-200"
@@ -223,9 +261,9 @@ export default function ReportsDashboard() {
                           {isOnline ? "📱 ONLINE" : "💵 CASH"}
                         </span>
                       </td>
-                      <td className="py-3 px-3">
+                      <td className="py-3.5 px-4">
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${
                             order.status === "Ready"
                               ? "bg-emerald-100 text-emerald-700"
                               : order.status === "Preparing"
@@ -236,10 +274,10 @@ export default function ReportsDashboard() {
                           {order.status}
                         </span>
                       </td>
-                      <td className="py-3 px-3 text-slate-400">
+                      <td className="py-3.5 px-4 text-slate-400">
                         {new Date(order.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </td>
-                      <td className="py-3 px-3 text-right font-bold text-slate-900">
+                      <td className="py-3.5 px-4 text-right font-extrabold text-slate-900">
                         ₹{order.total_amount}
                       </td>
                     </tr>
