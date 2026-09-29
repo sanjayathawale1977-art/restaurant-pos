@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Utensils,
   ShoppingCart,
@@ -137,11 +137,15 @@ export default function RestaurantPOS() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [kotSuccess, setKotSuccess] = useState<boolean>(false);
   const [orderSuccess, setOrderSuccess] = useState<boolean>(false);
 
   const [activeOrders, setActiveOrders] = useState<DBOrder[]>([]);
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [ignoredOrderIds, setIgnoredOrderIds] = useState<number[]>([]);
+
+  // Ref to track if user is manually adding/editing cart so auto-sync doesn't wipe it
+  const isEditingManually = useRef<boolean>(false);
 
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
   const [confirmedPaymentMode, setConfirmedPaymentMode] = useState<string>("Cash");
@@ -152,6 +156,7 @@ export default function RestaurantPOS() {
         .from("orders")
         .select("*")
         .neq("status", "Completed")
+        .neq("status", "Cancelled")
         .order("created_at", { ascending: false });
 
       if (!error && data) {
@@ -168,9 +173,12 @@ export default function RestaurantPOS() {
     return () => clearInterval(interval);
   }, [fetchLiveOrders]);
 
-  // Load and consolidate all items for the table into 1 single bill
+  // Load order for table
   const loadOrderForTable = useCallback(
     (tableNum: string, currentOrders: DBOrder[], ignoredList: number[]) => {
+      // Agar staff manually cart banaye hue hai aur KOT nahi bheja, toh overwrite mat karo
+      if (isEditingManually.current) return;
+
       const cleanNum = tableNum.replace("T-", "");
       const matching = currentOrders.filter(
         (o) =>
@@ -182,13 +190,12 @@ export default function RestaurantPOS() {
       if (matching.length > 0) {
         setActiveOrderId(matching[0].id);
 
-        // Group same dishes together across all rounds
-        const map: Record<string, { qty: number; price: number }> = {};
+        const map: Record<string, { qty: number; price: number; round: number }> = {};
         matching.forEach((ord) => {
           if (Array.isArray(ord.items)) {
             ord.items.forEach((it) => {
               if (!map[it.name]) {
-                map[it.name] = { qty: 0, price: Number(it.price) };
+                map[it.name] = { qty: 0, price: Number(it.price), round: it.round || 1 };
               }
               map[it.name].qty += Number(it.quantity);
             });
@@ -198,11 +205,12 @@ export default function RestaurantPOS() {
         const mapped: CartItem[] = Object.entries(map).map(([name, val], idx) => {
           const menuItem = MENU_DATA.find((m) => m.name === name);
           return {
-            id: menuItem ? menuItem.id : 7000 + idx,
+            id: menuItem ? menuItem.id : 8000 + idx,
             name,
             category: menuItem ? menuItem.category : "Food",
             price: val.price,
             quantity: val.qty,
+            round: val.round,
             image: menuItem ? menuItem.image : "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=400&q=80",
           };
         });
@@ -217,6 +225,7 @@ export default function RestaurantPOS() {
   );
 
   const handleSelectTable = (table: string) => {
+    isEditingManually.current = false;
     setSelectedTable(table);
     loadOrderForTable(table, activeOrders, ignoredOrderIds);
   };
@@ -226,6 +235,7 @@ export default function RestaurantPOS() {
   }, [activeOrders, selectedTable, ignoredOrderIds, loadOrderForTable]);
 
   const handleClearBlankBill = () => {
+    isEditingManually.current = false;
     if (activeOrderId) {
       setIgnoredOrderIds((prev) => [...prev, activeOrderId]);
     }
@@ -234,6 +244,7 @@ export default function RestaurantPOS() {
   };
 
   const addToCart = (item: MenuItem) => {
+    isEditingManually.current = true;
     setCart((prev) => {
       const existing = prev.find((i) => i.id === item.id);
       if (existing) {
@@ -241,11 +252,12 @@ export default function RestaurantPOS() {
           i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i
         );
       }
-      return [...prev, { ...item, quantity: 1 }];
+      return [...prev, { ...item, quantity: 1, round: 1 }];
     });
   };
 
   const updateQuantity = (id: number, delta: number) => {
+    isEditingManually.current = true;
     setCart((prev) =>
       prev
         .map((item) => {
@@ -260,6 +272,7 @@ export default function RestaurantPOS() {
   };
 
   const removeItem = (id: number) => {
+    isEditingManually.current = true;
     setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
@@ -304,16 +317,25 @@ export default function RestaurantPOS() {
     }
   };
 
+  // SEND TO KOT (STAFF MANUAL ORDER FIX)
   const handleSendToKitchenOrAppend = async () => {
     if (cart.length === 0) return;
     setLoading(true);
 
     try {
+      const formattedItems = cart.map((item) => ({
+        name: item.name,
+        quantity: Number(item.quantity),
+        price: Number(item.price),
+        round: item.round || 1,
+      }));
+
       if (activeOrderId) {
+        // Ongoing order update
         const { error } = await supabase
           .from("orders")
           .update({
-            items: cart.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+            items: formattedItems,
             total_amount: grandTotal,
             status: "Pending",
           })
@@ -321,42 +343,54 @@ export default function RestaurantPOS() {
 
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("orders").insert([
-          {
-            table_number: selectedTable,
-            items: cart.map((item) => ({
-              name: item.name,
-              quantity: item.quantity,
-              price: item.price,
-            })),
-            status: "Pending",
-            total_amount: grandTotal,
-            payment_mode: "Pending",
-          },
-        ]);
+        // New order insertion
+        const { data, error } = await supabase
+          .from("orders")
+          .insert([
+            {
+              table_number: selectedTable,
+              items: formattedItems,
+              status: "Pending",
+              total_amount: grandTotal,
+              payment_mode: "Pending",
+            },
+          ])
+          .select();
 
         if (error) throw error;
+        if (data && data.length > 0) {
+          setActiveOrderId(data[0].id);
+        }
       }
 
       await deductInventoryStock(cart);
-      setOrderSuccess(true);
+      isEditingManually.current = false;
+      setKotSuccess(true);
       await fetchLiveOrders();
-      setTimeout(() => setOrderSuccess(false), 2000);
+
+      // Show confirmation banner
+      setTimeout(() => setKotSuccess(false), 2500);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Error";
-      alert("Error: " + message);
+      const message = err instanceof Error ? err.message : "KOT save failed";
+      alert("Error sending to KOT: " + message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Final Payment settlement: Prints 1 single combined invoice
+  // Settle single combined bill
   const finalizeOrderWithPayment = async (mode: "Cash" | "Online") => {
     if (cart.length === 0) return;
     setLoading(true);
     setConfirmedPaymentMode(mode);
 
     try {
+      const formattedItems = cart.map((i) => ({
+        name: i.name,
+        quantity: Number(i.quantity),
+        price: Number(i.price),
+      }));
+
       if (activeOrderId) {
         const { error } = await supabase
           .from("orders")
@@ -364,7 +398,7 @@ export default function RestaurantPOS() {
             payment_mode: mode,
             status: "Completed",
             total_amount: grandTotal,
-            items: cart.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+            items: formattedItems,
           })
           .eq("id", activeOrderId);
 
@@ -373,11 +407,7 @@ export default function RestaurantPOS() {
         const { error } = await supabase.from("orders").insert([
           {
             table_number: selectedTable,
-            items: cart.map((item) => ({
-              name: item.name,
-              quantity: item.quantity,
-              price: item.price,
-            })),
+            items: formattedItems,
             status: "Completed",
             total_amount: grandTotal,
             payment_mode: mode,
@@ -390,8 +420,9 @@ export default function RestaurantPOS() {
 
       setShowPaymentModal(false);
       setOrderSuccess(true);
+      isEditingManually.current = false;
 
-      // Print Single Final Bill
+      // Print bill
       setTimeout(() => window.print(), 300);
 
       setTimeout(() => {
@@ -400,8 +431,8 @@ export default function RestaurantPOS() {
         fetchLiveOrders();
       }, 2000);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Payment failed";
-      alert("Payment Error: " + message);
+      const message = err instanceof Error ? err.message : "Payment error";
+      alert("Payment failed: " + message);
     } finally {
       setLoading(false);
     }
@@ -455,7 +486,7 @@ export default function RestaurantPOS() {
           </div>
           <div className="flex justify-between">
             <span>GST (5%):</span>
-            <span>₹{(gst).toFixed(2)}</span>
+            <span>₹{gst.toFixed(2)}</span>
           </div>
           <div className="flex justify-between font-bold text-xs pt-1 border-t border-black">
             <span>Grand Total:</span>
@@ -481,7 +512,7 @@ export default function RestaurantPOS() {
             </div>
             <div>
               <h1 className="text-lg font-black tracking-tight text-slate-900">RestoSync POS</h1>
-              <p className="text-xs text-slate-400 font-medium">Single Final Bill System</p>
+              <p className="text-xs text-slate-400 font-medium">Smart Table & Manual Order Billing</p>
             </div>
           </div>
 
@@ -540,7 +571,7 @@ export default function RestaurantPOS() {
                   o.status !== "Completed" &&
                   !ignoredOrderIds.includes(o.id)
               );
-              const hasActiveQR = matching.length > 0;
+              const hasActiveOrder = matching.length > 0;
               const isSelected = selectedTable === table;
 
               return (
@@ -550,13 +581,13 @@ export default function RestaurantPOS() {
                   className={`relative px-4 py-2 rounded-2xl text-xs font-bold transition-all duration-200 flex items-center gap-2 shadow-2xs ${
                     isSelected
                       ? "bg-orange-500 text-white shadow-orange-500/25 shadow-md scale-105"
-                      : hasActiveQR
+                      : hasActiveOrder
                       ? "bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200"
                       : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                   }`}
                 >
                   <span>{table}</span>
-                  {hasActiveQR && (
+                  {hasActiveOrder && (
                     <span className="flex h-2 w-2 relative">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
@@ -617,7 +648,7 @@ export default function RestaurantPOS() {
         </div>
       </div>
 
-      {/* Single Final Bill Sidebar */}
+      {/* Cart & Billing Sidebar */}
       <div className="w-[400px] bg-white border-l border-slate-200/80 flex flex-col shadow-sm">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
           <div className="flex items-center space-x-2.5">
@@ -625,7 +656,9 @@ export default function RestaurantPOS() {
               <ShoppingCart className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="font-extrabold text-slate-900 text-base">Final Combined Bill</h2>
+              <h2 className="font-extrabold text-slate-900 text-base">
+                {activeOrderId ? `Running Bill #${activeOrderId}` : "Current Order"}
+              </h2>
               <p className="text-[11px] text-slate-400 font-medium">Table {selectedTable}</p>
             </div>
           </div>
@@ -646,16 +679,24 @@ export default function RestaurantPOS() {
           </div>
         </div>
 
-        {/* Combined Items List */}
+        {/* KOT Success Alert */}
+        {kotSuccess && (
+          <div className="mx-6 mt-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>KOT Sent to Kitchen Successfully!</span>
+          </div>
+        )}
+
+        {/* Cart Items List */}
         <div className="flex-1 overflow-y-auto p-6 space-y-3">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6">
               <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-3">
                 <ShoppingCart className="w-7 h-7 text-slate-300" />
               </div>
-              <p className="text-sm font-bold text-slate-700">No active bill for {selectedTable}</p>
+              <p className="text-sm font-bold text-slate-700">Table is Empty</p>
               <p className="text-xs text-slate-400 mt-1 max-w-[200px]">
-                Scan QR or tap dishes to create order
+                Click on dishes to add manual order or wait for QR orders
               </p>
             </div>
           ) : (
@@ -674,7 +715,7 @@ export default function RestaurantPOS() {
                 <div className="flex items-center space-x-1.5">
                   <button
                     onClick={() => updateQuantity(item.id, -1)}
-                    className="w-7 h-7 flex items-center justify-center bg-white border border-slate-200/80 rounded-lg text-slate-600 hover:bg-slate-100 transition"
+                    className="w-7 h-7 flex items-center justify-center bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-100 transition"
                   >
                     <Minus className="w-3.5 h-3.5" />
                   </button>
@@ -683,7 +724,7 @@ export default function RestaurantPOS() {
                   </span>
                   <button
                     onClick={() => updateQuantity(item.id, 1)}
-                    className="w-7 h-7 flex items-center justify-center bg-white border border-slate-200/80 rounded-lg text-slate-600 hover:bg-slate-100 transition"
+                    className="w-7 h-7 flex items-center justify-center bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-100 transition"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -699,7 +740,7 @@ export default function RestaurantPOS() {
           )}
         </div>
 
-        {/* Combined Footer */}
+        {/* Footer Actions */}
         <div className="p-6 bg-slate-50/90 border-t border-slate-200/60 space-y-2.5">
           <div className="flex justify-between text-xs text-slate-500">
             <span>Subtotal</span>
@@ -721,7 +762,7 @@ export default function RestaurantPOS() {
               className="flex items-center justify-center gap-2 py-3 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold rounded-2xl disabled:opacity-40 transition shadow-2xs"
             >
               <Printer className="w-4 h-4" />
-              <span>Print 1 Bill</span>
+              <span>Print Bill</span>
             </button>
 
             <button
@@ -739,26 +780,29 @@ export default function RestaurantPOS() {
               ) : (
                 <>
                   <CreditCard className="w-4 h-4" />
-                  <span>Settle Bill</span>
+                  <span>Settle & Pay</span>
                 </>
               )}
             </button>
           </div>
 
+          {/* Send To KOT Button (Does not vanish anymore) */}
           {cart.length > 0 && (
             <button
               onClick={handleSendToKitchenOrAppend}
               disabled={loading}
-              className="w-full mt-1 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition flex items-center justify-center gap-1.5"
+              className="w-full mt-1 py-2.5 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition flex items-center justify-center gap-2 shadow-xs"
             >
-              <Layers className="w-3.5 h-3.5 text-orange-500" />
-              <span>Send Round to Kitchen (Unpaid)</span>
+              <Layers className="w-4 h-4 text-orange-400" />
+              <span>
+                {loading ? "Sending..." : activeOrderId ? "Update & Send to Kitchen KOT" : "Send to Kitchen (KOT)"}
+              </span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Payment Modal */}
+      {/* Payment Selection Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl p-7 w-full max-w-sm shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
