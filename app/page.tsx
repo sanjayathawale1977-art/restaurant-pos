@@ -21,13 +21,12 @@ import {
   X,
   Sparkles,
   RefreshCw,
-  TrendingUp,
-  AlertCircle,
-  ArrowRight,
+  AlertTriangle,
+  ArrowUpRight,
+  Coffee,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
-// ---------------- TYPES & INTERFACES ----------------
 interface MenuItem {
   id: number;
   name: string;
@@ -65,30 +64,41 @@ interface InventoryItem {
   unit: string;
 }
 
-// ---------------- STATIC DATA ----------------
+// Full Cafe & Family Restaurant Top-Selling Menu
 const MENU_DATA: MenuItem[] = [
-  { id: 1, name: "Paneer Butter Masala", category: "Main Course", price: 240, image: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?auto=format&fit=crop&w=500&q=80" },
-  { id: 2, name: "Dal Makhani", category: "Main Course", price: 190, image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=500&q=80" },
-  { id: 3, name: "Butter Naan", category: "Breads", price: 45, image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=500&q=80" },
-  { id: 4, name: "Tandoori Roti", category: "Breads", price: 25, image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=500&q=80" },
-  { id: 5, name: "Veg Biryani", category: "Rice", price: 210, image: "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=500&q=80" },
-  { id: 6, name: "Jeera Rice", category: "Rice", price: 130, image: "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2?auto=format&fit=crop&w=500&q=80" },
-  { id: 7, name: "Cold Coffee", category: "Beverages", price: 90, image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=500&q=80" },
-  { id: 8, name: "Masala Chai", category: "Beverages", price: 30, image: "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=500&q=80" },
+  // Cafe Starters & Snacks
+  { id: 1, name: "Peri Peri French Fries", category: "Cafe & Snacks", price: 110, image: "https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&w=600&q=80" },
+  { id: 2, name: "Veg Cheese Grilled Sandwich", category: "Cafe & Snacks", price: 140, image: "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=600&q=80" },
+  { id: 3, name: "Paneer Tikka (6 Pcs)", category: "Starters", price: 210, image: "https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?auto=format&fit=crop&w=600&q=80" },
+  { id: 4, name: "Veg Crispy Manchurian", category: "Starters", price: 160, image: "https://images.unsplash.com/photo-1585032226651-759b368d7246?auto=format&fit=crop&w=600&q=80" },
+
+  // Restaurant Main Course
+  { id: 5, name: "Paneer Butter Masala", category: "Main Course", price: 240, image: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?auto=format&fit=crop&w=600&q=80" },
+  { id: 6, name: "Dal Makhani Special", category: "Main Course", price: 190, image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80" },
+  { id: 7, name: "Kadhai Paneer", category: "Main Course", price: 230, image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80" },
+
+  // Breads & Rice
+  { id: 8, name: "Butter Naan", category: "Breads", price: 45, image: "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=600&q=80" },
+  { id: 9, name: "Tandoori Butter Roti", category: "Breads", price: 25, image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&q=80" },
+  { id: 10, name: "Hyderabadi Veg Biryani", category: "Rice", price: 220, image: "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=600&q=80" },
+  { id: 11, name: "Jeera Rice with Dal Tadka", category: "Rice", price: 150, image: "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2?auto=format&fit=crop&w=600&q=80" },
+
+  // Cafe Beverages & Shakes
+  { id: 12, name: "Cold Coffee with Ice Cream", category: "Beverages", price: 110, image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=600&q=80" },
+  { id: 13, name: "Special Kullad Masala Chai", category: "Beverages", price: 35, image: "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80" },
+  { id: 14, name: "Virgin Mint Mojito", category: "Beverages", price: 99, image: "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80" },
+  { id: 15, name: "Chocolate Sizzler Brownie", category: "Desserts", price: 140, image: "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=600&q=80" },
 ];
 
 const TABLES = ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6"];
-const CATEGORIES = ["All", "Main Course", "Breads", "Rice", "Beverages"];
+const CATEGORIES = ["All", "Cafe & Snacks", "Starters", "Main Course", "Breads", "Rice", "Beverages", "Desserts"];
 
 export default function EnterpriseApp() {
-  // Current active view state: "pos" | "kitchen" | "tables" | "inventory" | "reports"
   const [currentView, setCurrentView] = useState<string>("pos");
 
-  // Global State
   const [activeOrders, setActiveOrders] = useState<DBOrder[]>([]);
   const [allOrdersHistory, setAllOrdersHistory] = useState<DBOrder[]>([]);
 
-  // POS State
   const [selectedTable, setSelectedTable] = useState<string>("T-1");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -102,11 +112,10 @@ export default function EnterpriseApp() {
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
   const [confirmedPaymentMode, setConfirmedPaymentMode] = useState<string>("Cash");
 
-  // Inventory State
   const [inventoryList, setInventoryList] = useState<InventoryItem[]>([]);
   const [invLoading, setInvLoading] = useState<boolean>(false);
+  const [stockInputVal, setStockInputVal] = useState<Record<number, string>>({});
 
-  // Sync Live Data
   const fetchOrders = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -122,7 +131,7 @@ export default function EnterpriseApp() {
         setActiveOrders(active);
       }
     } catch {
-      console.error("Order sync failed");
+      console.error("Order sync error");
     }
   }, []);
 
@@ -132,7 +141,7 @@ export default function EnterpriseApp() {
       const { data } = await supabase.from("inventory_items").select("*").order("name");
       if (data) setInventoryList(data as InventoryItem[]);
     } catch {
-      console.error("Inventory sync failed");
+      console.error("Inventory sync error");
     }
     setInvLoading(false);
   }, []);
@@ -144,7 +153,6 @@ export default function EnterpriseApp() {
     return () => clearInterval(interval);
   }, [fetchOrders, fetchInventory]);
 
-  // Load Order For Current Selected Table
   const loadOrderForTable = useCallback(
     (tableNum: string, currentOrders: DBOrder[], ignoredList: number[]) => {
       if (isEditingManually.current) return;
@@ -175,7 +183,7 @@ export default function EnterpriseApp() {
         const mapped: CartItem[] = Object.entries(map).map(([name, val], idx) => {
           const menuItem = MENU_DATA.find((m) => m.name === name);
           return {
-            id: menuItem ? menuItem.id : 8000 + idx,
+            id: menuItem ? menuItem.id : 9000 + idx,
             name,
             category: menuItem ? menuItem.category : "Food",
             price: val.price,
@@ -204,7 +212,6 @@ export default function EnterpriseApp() {
     loadOrderForTable(selectedTable, activeOrders, ignoredOrderIds);
   }, [activeOrders, selectedTable, ignoredOrderIds, loadOrderForTable]);
 
-  // POS Cart Handlers
   const addToCart = (item: MenuItem) => {
     isEditingManually.current = true;
     setCart((prev) => {
@@ -251,7 +258,7 @@ export default function EnterpriseApp() {
   const gst = Math.round(subtotal * 0.05);
   const grandTotal = subtotal + gst;
 
-  // Send to KOT
+  // Petpooja Multi-Round Handler
   const handleSendToKitchenOrAppend = async () => {
     if (cart.length === 0) return;
     setLoading(true);
@@ -345,7 +352,7 @@ export default function EnterpriseApp() {
     }
   };
 
-  // Settle Bill
+  // Final Settlement
   const finalizeOrderWithPayment = async (mode: "Cash" | "Online") => {
     if (cart.length === 0) return;
     setLoading(true);
@@ -403,20 +410,19 @@ export default function EnterpriseApp() {
     }
   };
 
-  // Kitchen Status Update
   const updateKitchenStatus = async (id: number, status: string) => {
     await supabase.from("orders").update({ status }).eq("id", id);
     fetchOrders();
   };
 
-  // Inventory Quick Add
-  const updateStock = async (id: number, current: number, change: number) => {
-    const updated = Math.max(0, current + change);
-    await supabase.from("inventory_items").update({ current_stock: updated }).eq("id", id);
+  // Professional Inventory Stock Update
+  const handleStockUpdate = async (id: number, currentStock: number, addVal: number) => {
+    const newStock = Math.max(0, currentStock + addVal);
+    await supabase.from("inventory_items").update({ current_stock: newStock }).eq("id", id);
+    setStockInputVal((prev) => ({ ...prev, [id]: "" }));
     fetchInventory();
   };
 
-  // Filtered Food Dishes
   const filteredMenu = MENU_DATA.filter((item) => {
     const matchesCategory = selectedCategory === "All" || item.category === selectedCategory;
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -484,10 +490,9 @@ export default function EnterpriseApp() {
         </div>
       </div>
 
-      {/* ================= LEFT SLIM SIDEBAR (APP VIEW SWITCHER) ================= */}
+      {/* ================= LEFT SLIM SIDEBAR (PETPOOJA APP SWITCHER) ================= */}
       <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between shrink-0 select-none">
         <div>
-          {/* Brand Header */}
           <div className="p-5 flex items-center gap-3 border-b border-slate-800/80">
             <div className="w-10 h-10 rounded-2xl bg-linear-to-tr from-orange-500 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
               <Sparkles className="w-5 h-5" />
@@ -498,7 +503,6 @@ export default function EnterpriseApp() {
             </div>
           </div>
 
-          {/* Navigation Buttons (No New Tabs!) */}
           <nav className="p-3 space-y-1.5">
             <button
               onClick={() => setCurrentView("pos")}
@@ -569,21 +573,20 @@ export default function EnterpriseApp() {
           </nav>
         </div>
 
-        {/* System Footer */}
         <div className="p-4 border-t border-slate-800/80 bg-slate-950/60">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[11px] font-bold text-slate-300">Active Station</span>
+              <span className="text-[11px] font-bold text-slate-300">Station 01</span>
             </div>
-            <span className="text-[10px] font-mono text-slate-500">Akola Main</span>
+            <span className="text-[10px] font-mono text-slate-500">Live POS</span>
           </div>
         </div>
       </aside>
 
-      {/* ================= RIGHT VIEW CONTAINER (SWITCHES INSTANTLY) ================= */}
+      {/* ================= RIGHT VIEW CONTAINER ================= */}
       <div className="flex-1 flex overflow-hidden">
-        {/* VIEW 1: POS BILLING & CATALOG */}
+        {/* VIEW 1: POS BILLING & EXPANDED MENU */}
         {currentView === "pos" && (
           <>
             <main className="flex-1 flex flex-col bg-slate-900/90 overflow-hidden">
@@ -629,7 +632,7 @@ export default function EnterpriseApp() {
                   <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search food item..."
+                    placeholder="Search dishes or snacks..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 focus:border-orange-500 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition"
@@ -687,6 +690,7 @@ export default function EnterpriseApp() {
               </div>
             </main>
 
+            {/* Sticky Order Panel */}
             <aside className="w-[380px] bg-slate-950 border-l border-slate-800 flex flex-col justify-between shrink-0 shadow-2xl">
               <div className="p-4 border-b border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
@@ -729,7 +733,7 @@ export default function EnterpriseApp() {
                   <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-600">
                     <ShoppingCart className="w-10 h-10 mb-2 stroke-[1.5]" />
                     <p className="text-xs font-bold text-slate-400">Table is Empty</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Click dishes on the left or scan table QR</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Click items on the left or scan table QR</p>
                   </div>
                 ) : (
                   cart.map((item) => (
@@ -820,7 +824,7 @@ export default function EnterpriseApp() {
           </>
         )}
 
-        {/* VIEW 2: KITCHEN DISPLAY SYSTEM (KDS) */}
+        {/* VIEW 2: KITCHEN DISPLAY SYSTEM */}
         {currentView === "kitchen" && (
           <div className="flex-1 p-6 bg-slate-900/95 overflow-y-auto">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
@@ -830,7 +834,7 @@ export default function EnterpriseApp() {
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-white">Live Kitchen Display System</h2>
-                  <p className="text-xs text-slate-400">Round-wise KOT Management</p>
+                  <p className="text-xs text-slate-400">Petpooja Multi-round KOT Orders</p>
                 </div>
               </div>
 
@@ -845,8 +849,8 @@ export default function EnterpriseApp() {
             {activeOrders.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-28 text-slate-500">
                 <ChefHat className="w-16 h-16 mb-3 opacity-30" />
-                <p className="text-base font-bold text-slate-400">All Kitchen Tickets Clear!</p>
-                <p className="text-xs text-slate-500 mt-1">No pending orders from tables.</p>
+                <p className="text-base font-bold text-slate-400">All Kitchen Orders Clear!</p>
+                <p className="text-xs text-slate-500 mt-1">No pending orders from dining tables.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
@@ -965,7 +969,7 @@ export default function EnterpriseApp() {
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-white">Table QR Codes</h2>
-                  <p className="text-xs text-slate-400">Print cards and place them on dining tables</p>
+                  <p className="text-xs text-slate-400">Print acrylic table top stands</p>
                 </div>
               </div>
 
@@ -973,7 +977,7 @@ export default function EnterpriseApp() {
                 onClick={() => window.print()}
                 className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
               >
-                <Printer className="w-4 h-4" /> Print All QR Cards
+                <Printer className="w-4 h-4" /> Print QR Cards
               </button>
             </div>
 
@@ -986,11 +990,11 @@ export default function EnterpriseApp() {
                 return (
                   <div key={table} className="bg-slate-950 border border-slate-800 rounded-3xl p-6 text-center flex flex-col items-center">
                     <h3 className="text-2xl font-black text-white mb-1">{table}</h3>
-                    <p className="text-xs text-orange-400 font-bold mb-4 uppercase tracking-wider">Scan to Order Food</p>
+                    <p className="text-xs text-orange-400 font-bold mb-4 uppercase tracking-wider">Scan for Digital Menu</p>
                     <div className="p-3 bg-white rounded-2xl mb-4 shadow-md">
                       <img src={qrUrl} alt={`QR for ${table}`} className="w-44 h-44 object-contain" />
                     </div>
-                    <p className="text-[11px] text-slate-500">Instant mobile menu • No app required</p>
+                    <p className="text-[11px] text-slate-500">Scan & Order directly from table</p>
                   </div>
                 );
               })}
@@ -998,7 +1002,7 @@ export default function EnterpriseApp() {
           </div>
         )}
 
-        {/* VIEW 4: RAW INVENTORY MANAGEMENT */}
+        {/* VIEW 4: PROFESSIONAL RAW INVENTORY (PETPOOJA STYLE) */}
         {currentView === "inventory" && (
           <div className="flex-1 p-8 bg-slate-900/95 overflow-y-auto">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
@@ -1007,8 +1011,8 @@ export default function EnterpriseApp() {
                   <Package className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-black text-white">Kitchen Inventory Stocks</h2>
-                  <p className="text-xs text-slate-400">Track and replenish raw restaurant ingredients</p>
+                  <h2 className="text-lg font-black text-white">Petpooja Inventory Management</h2>
+                  <p className="text-xs text-slate-400">Raw material depletion, stock inward & minimum threshold</p>
                 </div>
               </div>
 
@@ -1020,32 +1024,69 @@ export default function EnterpriseApp() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {inventoryList.map((item) => (
-                <div key={item.id} className="bg-slate-950 border border-slate-800 rounded-3xl p-5 flex flex-col justify-between">
-                  <div>
-                    <h3 className="font-black text-sm text-white">{item.name}</h3>
-                    <p className="text-2xl font-black text-orange-400 mt-2">
-                      {item.current_stock} <span className="text-xs text-slate-400 font-normal">{item.unit}</span>
-                    </p>
-                  </div>
+            {/* Inventory Table List */}
+            <div className="bg-slate-950 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+              <div className="p-4 bg-slate-900/80 border-b border-slate-800 flex justify-between items-center">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-300">Raw Stock Inventory</h3>
+                <span className="text-[11px] text-slate-500 font-mono">{inventoryList.length} Items Configured</span>
+              </div>
 
-                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-800">
-                    <button
-                      onClick={() => updateStock(item.id, Number(item.current_stock), 5)}
-                      className="flex-1 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 transition"
-                    >
-                      +5 {item.unit}
-                    </button>
-                    <button
-                      onClick={() => updateStock(item.id, Number(item.current_stock), 10)}
-                      className="flex-1 py-1.5 bg-orange-500/20 hover:bg-orange-500 text-orange-300 hover:text-white border border-orange-500/30 rounded-xl text-xs font-bold transition"
-                    >
-                      +10 {item.unit}
-                    </button>
-                  </div>
-                </div>
-              ))}
+              <div className="divide-y divide-slate-800/80">
+                {inventoryList.map((item) => {
+                  const isLowStock = Number(item.current_stock) < 10;
+                  const customVal = stockInputVal[item.id] || "";
+
+                  return (
+                    <div key={item.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-900/40 transition">
+                      <div className="flex items-center gap-3 min-w-[200px]">
+                        <div className={`p-2.5 rounded-2xl ${isLowStock ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"}`}>
+                          {isLowStock ? <AlertTriangle className="w-5 h-5" /> : <Package className="w-5 h-5" />}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-sm text-white">{item.name}</h4>
+                          <span className="text-[11px] text-slate-400 font-medium">Unit: {item.unit}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-xs text-slate-400">Current In-Stock</p>
+                          <p className={`text-xl font-black ${isLowStock ? "text-red-400" : "text-white"}`}>
+                            {item.current_stock} <span className="text-xs text-slate-400 font-normal">{item.unit}</span>
+                          </p>
+                        </div>
+                        {isLowStock && (
+                          <span className="text-[10px] font-extrabold px-2.5 py-1 bg-red-500/20 border border-red-500/40 text-red-400 rounded-lg">
+                            Low Stock
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Quick Replenish Inward Form */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          placeholder="Qty..."
+                          value={customVal}
+                          onChange={(e) => setStockInputVal({ ...stockInputVal, [item.id]: e.target.value })}
+                          className="w-20 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-orange-500"
+                        />
+                        <button
+                          onClick={() => {
+                            if (customVal && Number(customVal) > 0) {
+                              handleStockUpdate(item.id, Number(item.current_stock), Number(customVal));
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Stock</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -1060,7 +1101,7 @@ export default function EnterpriseApp() {
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-white">Daily Shift Financials</h2>
-                  <p className="text-xs text-slate-400">Cash vs Online breakdown</p>
+                  <p className="text-xs text-slate-400">Petpooja cash register reconciliation</p>
                 </div>
               </div>
             </div>
@@ -1079,32 +1120,32 @@ export default function EnterpriseApp() {
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5">
-                      <p className="text-xs font-bold text-slate-400">Total Revenue</p>
+                      <p className="text-xs font-bold text-slate-400">Total Net Revenue</p>
                       <h3 className="text-2xl font-black text-white mt-1">₹{totalSales.toFixed(2)}</h3>
-                      <p className="text-[11px] text-slate-500 mt-1">{completed.length} settled orders</p>
+                      <p className="text-[11px] text-slate-500 mt-1">{completed.length} settled tickets</p>
                     </div>
 
                     <div className="bg-slate-950 border border-emerald-500/30 rounded-3xl p-5">
-                      <p className="text-xs font-bold text-emerald-400">Cash Collections</p>
+                      <p className="text-xs font-bold text-emerald-400">Cash in Drawer</p>
                       <h3 className="text-2xl font-black text-white mt-1">₹{cashSales.toFixed(2)}</h3>
-                      <p className="text-[11px] text-slate-500 mt-1">Direct register cash</p>
+                      <p className="text-[11px] text-slate-500 mt-1">Physical cash payments</p>
                     </div>
 
                     <div className="bg-slate-950 border border-sky-500/30 rounded-3xl p-5">
-                      <p className="text-xs font-bold text-sky-400">UPI / Online Collections</p>
+                      <p className="text-xs font-bold text-sky-400">UPI / QR Collections</p>
                       <h3 className="text-2xl font-black text-white mt-1">₹{onlineSales.toFixed(2)}</h3>
                       <p className="text-[11px] text-slate-500 mt-1">Direct bank settlements</p>
                     </div>
                   </div>
 
                   <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5">
-                    <h3 className="font-bold text-sm text-white mb-3">Recent Completed Transactions</h3>
+                    <h3 className="font-bold text-sm text-white mb-3">Settled Bills Log</h3>
                     <div className="space-y-2">
                       {completed.slice(0, 8).map((ord) => (
                         <div key={ord.id} className="flex justify-between items-center p-3 rounded-xl bg-slate-900/60 border border-slate-800">
                           <div>
                             <span className="font-black text-xs text-white">{ord.table_number}</span>
-                            <span className="text-[11px] text-slate-400 ml-2">Order #{ord.id}</span>
+                            <span className="text-[11px] text-slate-400 ml-2">Invoice #{ord.id}</span>
                           </div>
                           <div className="flex items-center gap-3">
                             <span className="font-mono text-xs font-bold text-orange-400">₹{ord.total_amount}</span>
@@ -1123,7 +1164,7 @@ export default function EnterpriseApp() {
         )}
       </div>
 
-      {/* ================= PAYMENT MODAL ================= */}
+      {/* PAYMENT MODAL */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
