@@ -67,27 +67,117 @@ interface InventoryItem {
 // Full Cafe & Family Restaurant Top-Selling Menu
 const MENU_DATA: MenuItem[] = [
   // Cafe Starters & Snacks
-  { id: 1, name: "Peri Peri French Fries", category: "Cafe & Snacks", price: 110, image: "https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&w=600&q=80" },
-  { id: 2, name: "Veg Cheese Grilled Sandwich", category: "Cafe & Snacks", price: 140, image: "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=600&q=80" },
-  { id: 3, name: "Paneer Tikka (6 Pcs)", category: "Starters", price: 210, image: "https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?auto=format&fit=crop&w=600&q=80" },
-  { id: 4, name: "Veg Crispy Manchurian", category: "Starters", price: 160, image: "https://images.unsplash.com/photo-1585032226651-759b368d7246?auto=format&fit=crop&w=600&q=80" },
+  { 
+    id: 1, 
+    name: "Peri Peri French Fries", 
+    category: "Cafe & Snacks", 
+    price: 110, 
+    image: "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 2, 
+    name: "Veg Cheese Grilled Sandwich", 
+    category: "Cafe & Snacks", 
+    price: 140, 
+    image: "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 3, 
+    name: "Paneer Tikka (6 Pcs)", 
+    category: "Starters", 
+    price: 210, 
+    image: "https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 4, 
+    name: "Veg Crispy Manchurian", 
+    category: "Starters", 
+    price: 160, 
+    image: "https://images.unsplash.com/photo-1569058242253-92a9c755a0ec?auto=format&fit=crop&w=600&q=80" 
+  },
 
   // Restaurant Main Course
-  { id: 5, name: "Paneer Butter Masala", category: "Main Course", price: 240, image: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?auto=format&fit=crop&w=600&q=80" },
-  { id: 6, name: "Dal Makhani Special", category: "Main Course", price: 190, image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80" },
-  { id: 7, name: "Kadhai Paneer", category: "Main Course", price: 230, image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80" },
+  { 
+    id: 5, 
+    name: "Paneer Butter Masala", 
+    category: "Main Course", 
+    price: 240, 
+    image: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 6, 
+    name: "Dal Makhani Special", 
+    category: "Main Course", 
+    price: 190, 
+    image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 7, 
+    name: "Kadhai Paneer", 
+    category: "Main Course", 
+    price: 230, 
+    image: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?auto=format&fit=crop&w=600&q=80" 
+  },
 
-  // Breads & Rice
-  { id: 8, name: "Butter Naan", category: "Breads", price: 45, image: "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=600&q=80" },
-  { id: 9, name: "Tandoori Butter Roti", category: "Breads", price: 25, image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&q=80" },
-  { id: 10, name: "Hyderabadi Veg Biryani", category: "Rice", price: 220, image: "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=600&q=80" },
-  { id: 11, name: "Jeera Rice with Dal Tadka", category: "Rice", price: 150, image: "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2?auto=format&fit=crop&w=600&q=80" },
+  // Authentic Breads & Rice (Accurate Naan & Roti)
+  { 
+    id: 8, 
+    name: "Butter Naan", 
+    category: "Breads", 
+    price: 45, 
+    image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 9, 
+    name: "Tandoori Butter Roti", 
+    category: "Breads", 
+    price: 25, 
+    image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 10, 
+    name: "Hyderabadi Veg Biryani", 
+    category: "Rice", 
+    price: 220, 
+    image: "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 11, 
+    name: "Jeera Rice with Dal Tadka", 
+    category: "Rice", 
+    price: 150, 
+    image: "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2?auto=format&fit=crop&w=600&q=80" 
+  },
 
-  // Cafe Beverages & Shakes
-  { id: 12, name: "Cold Coffee with Ice Cream", category: "Beverages", price: 110, image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=600&q=80" },
-  { id: 13, name: "Special Kullad Masala Chai", category: "Beverages", price: 35, image: "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80" },
-  { id: 14, name: "Virgin Mint Mojito", category: "Beverages", price: 99, image: "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80" },
-  { id: 15, name: "Chocolate Sizzler Brownie", category: "Desserts", price: 140, image: "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=600&q=80" },
+  // Cafe Beverages & Desserts
+  { 
+    id: 12, 
+    name: "Cold Coffee with Ice Cream", 
+    category: "Beverages", 
+    price: 110, 
+    image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 13, 
+    name: "Special Kullad Masala Chai", 
+    category: "Beverages", 
+    price: 35, 
+    image: "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 14, 
+    name: "Virgin Mint Mojito", 
+    category: "Beverages", 
+    price: 99, 
+    image: "https://images.unsplash.com/photo-1551024709-8f23befc6f87?auto=format&fit=crop&w=600&q=80" 
+  },
+  { 
+    id: 15, 
+    name: "Chocolate Sizzler Brownie", 
+    category: "Desserts", 
+    price: 140, 
+    image: "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=600&q=80" 
+  },
 ];
 
 const TABLES = ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6"];
