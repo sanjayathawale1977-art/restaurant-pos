@@ -10,14 +10,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { supabase } from "../supabaseClient";
-
-interface MenuItem {
-  id: number;
-  name: string;
-  category: string;
-  price: number;
-  image: string;
-}
+import { MENU_DATA, CATEGORIES, type MenuItem } from "../menuData";
 
 interface CartItem extends MenuItem {
   quantity: number;
@@ -29,67 +22,6 @@ interface OrderItemData {
   price: number;
   round?: number;
 }
-
-const MENU_DATA: MenuItem[] = [
-  {
-    id: 1,
-    name: "Paneer Butter Masala",
-    category: "Main Course",
-    price: 240,
-    image: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?auto=format&fit=crop&w=600&q=80",
-  },
-  {
-    id: 2,
-    name: "Dal Makhani",
-    category: "Main Course",
-    price: 190,
-    image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80",
-  },
-  {
-    id: 3,
-    name: "Butter Naan",
-    category: "Breads",
-    price: 45,
-    image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80",
-  },
-  {
-    id: 4,
-    name: "Tandoori Roti",
-    category: "Breads",
-    price: 25,
-    image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&q=80",
-  },
-  {
-    id: 5,
-    name: "Veg Biryani",
-    category: "Rice",
-    price: 210,
-    image: "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=600&q=80",
-  },
-  {
-    id: 6,
-    name: "Jeera Rice",
-    category: "Rice",
-    price: 130,
-    image: "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2?auto=format&fit=crop&w=600&q=80",
-  },
-  {
-    id: 7,
-    name: "Cold Coffee",
-    category: "Beverages",
-    price: 90,
-    image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=600&q=80",
-  },
-  {
-    id: 8,
-    name: "Masala Chai",
-    category: "Beverages",
-    price: 30,
-    image: "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80",
-  },
-];
-
-const CATEGORIES = ["All", "Main Course", "Breads", "Rice", "Beverages"];
 
 function OrderContent() {
   const searchParams = useSearchParams();

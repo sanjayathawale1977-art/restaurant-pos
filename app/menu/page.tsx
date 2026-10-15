@@ -4,41 +4,11 @@ import React, { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Utensils, ShoppingBag, Plus, Minus, CheckCircle2, Clock } from "lucide-react";
 import { supabase } from "../supabaseClient";
-
-interface MenuItem {
-  id: number;
-  name: string;
-  category: string;
-  price: number;
-}
+import { MENU_DATA, CATEGORIES, RECIPES, type MenuItem } from "../menuData";
 
 interface CartItem extends MenuItem {
   quantity: number;
 }
-
-const MENU_DATA: MenuItem[] = [
-  { id: 1, name: "Paneer Butter Masala", category: "Main Course", price: 240 },
-  { id: 2, name: "Dal Makhani", category: "Main Course", price: 190 },
-  { id: 3, name: "Butter Naan", category: "Breads", price: 45 },
-  { id: 4, name: "Tandoori Roti", category: "Breads", price: 25 },
-  { id: 5, name: "Veg Biryani", category: "Rice", price: 210 },
-  { id: 6, name: "Jeera Rice", category: "Rice", price: 130 },
-  { id: 7, name: "Cold Coffee", category: "Beverages", price: 90 },
-  { id: 8, name: "Masala Chai", category: "Beverages", price: 30 },
-];
-
-const RECIPES: Record<string, { ingredient: string; qty: number }[]> = {
-  "Paneer Butter Masala": [{ ingredient: "Paneer", qty: 0.25 }, { ingredient: "Butter", qty: 0.05 }],
-  "Dal Makhani": [{ ingredient: "Butter", qty: 0.05 }],
-  "Butter Naan": [{ ingredient: "Flour / Maida", qty: 0.1 }, { ingredient: "Butter", qty: 0.02 }],
-  "Tandoori Roti": [{ ingredient: "Flour / Maida", qty: 0.1 }],
-  "Veg Biryani": [{ ingredient: "Basmati Rice", qty: 0.2 }, { ingredient: "Paneer", qty: 0.05 }],
-  "Jeera Rice": [{ ingredient: "Basmati Rice", qty: 0.15 }, { ingredient: "Butter", qty: 0.02 }],
-  "Cold Coffee": [{ ingredient: "Milk", qty: 0.25 }, { ingredient: "Coffee Beans", qty: 0.02 }],
-  "Masala Chai": [{ ingredient: "Milk", qty: 0.15 }],
-};
-
-const CATEGORIES = ["All", "Main Course", "Breads", "Rice", "Beverages"];
 
 function MenuContent() {
   const searchParams = useSearchParams();

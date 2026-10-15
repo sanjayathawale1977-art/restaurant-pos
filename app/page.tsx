@@ -26,14 +26,8 @@ import {
   Coffee,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
-
-interface MenuItem {
-  id: number;
-  name: string;
-  category: string;
-  price: number;
-  image: string;
-}
+import { MENU_DATA, CATEGORIES, type MenuItem } from "./menuData";
+import { RESTAURANT, APP_NAME } from "./restaurantConfig";
 
 interface CartItem extends MenuItem {
   quantity: number;
@@ -64,124 +58,7 @@ interface InventoryItem {
   unit: string;
 }
 
-// Full Cafe & Family Restaurant Top-Selling Menu
-const MENU_DATA: MenuItem[] = [
-  // Cafe Starters & Snacks
-  { 
-    id: 1, 
-    name: "Peri Peri French Fries", 
-    category: "Cafe & Snacks", 
-    price: 110, 
-    image: "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 2, 
-    name: "Veg Cheese Grilled Sandwich", 
-    category: "Cafe & Snacks", 
-    price: 140, 
-    image: "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 3, 
-    name: "Paneer Tikka (6 Pcs)", 
-    category: "Starters", 
-    price: 210, 
-    image: "https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 4, 
-    name: "Veg Crispy Manchurian", 
-    category: "Starters", 
-    price: 160, 
-    image: "https://images.unsplash.com/photo-1569058242253-92a9c755a0ec?auto=format&fit=crop&w=600&q=80" 
-  },
-
-  // Restaurant Main Course
-  { 
-    id: 5, 
-    name: "Paneer Butter Masala", 
-    category: "Main Course", 
-    price: 240, 
-    image: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 6, 
-    name: "Dal Makhani Special", 
-    category: "Main Course", 
-    price: 190, 
-    image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 7, 
-    name: "Kadhai Paneer", 
-    category: "Main Course", 
-    price: 230, 
-    image: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?auto=format&fit=crop&w=600&q=80" 
-  },
-
-  // Authentic Breads & Rice (Accurate Naan & Roti)
-  { 
-    id: 8, 
-    name: "Butter Naan", 
-    category: "Breads", 
-    price: 45, 
-    image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 9, 
-    name: "Tandoori Butter Roti", 
-    category: "Breads", 
-    price: 25, 
-    image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 10, 
-    name: "Hyderabadi Veg Biryani", 
-    category: "Rice", 
-    price: 220, 
-    image: "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 11, 
-    name: "Jeera Rice with Dal Tadka", 
-    category: "Rice", 
-    price: 150, 
-    image: "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2?auto=format&fit=crop&w=600&q=80" 
-  },
-
-  // Cafe Beverages & Desserts
-  { 
-    id: 12, 
-    name: "Cold Coffee with Ice Cream", 
-    category: "Beverages", 
-    price: 110, 
-    image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 13, 
-    name: "Special Kullad Masala Chai", 
-    category: "Beverages", 
-    price: 35, 
-    image: "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 14, 
-    name: "Virgin Mint Mojito", 
-    category: "Beverages", 
-    price: 99, 
-    image: "https://images.unsplash.com/photo-1551024709-8f23befc6f87?auto=format&fit=crop&w=600&q=80" 
-  },
-  { 
-    id: 15, 
-    name: "Chocolate Sizzler Brownie", 
-    category: "Desserts", 
-    price: 140, 
-    image: "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=600&q=80" 
-  },
-];
-
 const TABLES = ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6"];
-const CATEGORIES = ["All", "Cafe & Snacks", "Starters", "Main Course", "Breads", "Rice", "Beverages", "Desserts"];
 
 export default function EnterpriseApp() {
   const [currentView, setCurrentView] = useState<string>("pos");
@@ -198,6 +75,7 @@ export default function EnterpriseApp() {
   const [orderSuccess, setOrderSuccess] = useState<boolean>(false);
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [ignoredOrderIds, setIgnoredOrderIds] = useState<number[]>([]);
+  const [printBillNo, setPrintBillNo] = useState<number | null>(null);
   const isEditingManually = useRef<boolean>(false);
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
   const [confirmedPaymentMode, setConfirmedPaymentMode] = useState<string>("Cash");
@@ -341,6 +219,7 @@ export default function EnterpriseApp() {
       setIgnoredOrderIds((prev) => [...prev, activeOrderId]);
     }
     setActiveOrderId(null);
+    setPrintBillNo(null);
     setCart([]);
   };
 
@@ -348,7 +227,7 @@ export default function EnterpriseApp() {
   const gst = Math.round(subtotal * 0.05);
   const grandTotal = subtotal + gst;
 
-  // Petpooja Multi-Round Handler
+  // Multi-Round KOT Handler
   const handleSendToKitchenOrAppend = async () => {
     if (cart.length === 0) return;
     setLoading(true);
@@ -467,18 +346,23 @@ export default function EnterpriseApp() {
           .eq("id", activeOrderId);
 
         if (error) throw error;
+        setPrintBillNo(activeOrderId);
       } else {
-        const { error } = await supabase.from("orders").insert([
-          {
-            table_number: selectedTable,
-            items: formattedItems,
-            status: "Completed",
-            total_amount: grandTotal,
-            payment_mode: mode,
-          },
-        ]);
+        const { data: newBill, error } = await supabase
+          .from("orders")
+          .insert([
+            {
+              table_number: selectedTable,
+              items: formattedItems,
+              status: "Completed",
+              total_amount: grandTotal,
+              payment_mode: mode,
+            },
+          ])
+          .select("id");
 
         if (error) throw error;
+        if (newBill && newBill.length > 0) setPrintBillNo(newBill[0].id);
       }
 
       setShowPaymentModal(false);
@@ -524,17 +408,28 @@ export default function EnterpriseApp() {
       {/* 80mm Print Receipt */}
       <div id="printable-receipt">
         <div className="text-center pb-2 border-b border-dashed border-black">
-          <h2 className="font-bold text-base tracking-wider">TAX INVOICE</h2>
+          <h2 className="font-bold text-base tracking-wider">{RESTAURANT.name}</h2>
+          <p className="text-[11px] text-gray-700">{RESTAURANT.address}</p>
+          <p className="text-[11px] text-gray-700">Ph: {RESTAURANT.phone}</p>
+          {RESTAURANT.gstin && (
+            <p className="text-[11px] text-gray-700">GSTIN: {RESTAURANT.gstin}</p>
+          )}
+          <h3 className="font-bold text-xs tracking-wider mt-1">
+            {RESTAURANT.gstin ? "TAX INVOICE" : "BILL"}
+          </h3>
           <p className="text-[11px] text-gray-700">Dine-in Customer Bill</p>
         </div>
 
         <div className="text-[11px] py-2 border-b border-dashed border-black space-y-0.5">
           <div className="flex justify-between">
-            <span>Table: <strong>{selectedTable}</strong></span>
+            <span>Bill No: <strong>{printBillNo ?? activeOrderId ?? "-"}</strong></span>
             <span>Date: {new Date().toLocaleDateString("en-IN")}</span>
           </div>
           <div className="flex justify-between">
+            <span>Table: <strong>{selectedTable}</strong></span>
             <span>Time: {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          </div>
+          <div className="flex justify-between">
             <span>Payment: <strong>{confirmedPaymentMode.toUpperCase()}</strong></span>
           </div>
         </div>
@@ -576,11 +471,11 @@ export default function EnterpriseApp() {
         </div>
 
         <div className="text-center text-[10px] mt-4 pt-2 border-t border-dashed border-black">
-          <p className="font-semibold">*** Thank You! Visit Again ***</p>
+          <p className="font-semibold">*** {RESTAURANT.footer} ***</p>
         </div>
       </div>
 
-      {/* ================= LEFT SLIM SIDEBAR (PETPOOJA APP SWITCHER) ================= */}
+      {/* ================= LEFT SLIM SIDEBAR (APP SWITCHER) ================= */}
       <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between shrink-0 select-none">
         <div>
           <div className="p-5 flex items-center gap-3 border-b border-slate-800/80">
@@ -588,7 +483,7 @@ export default function EnterpriseApp() {
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="font-black text-base tracking-tight text-white leading-tight">RestoSync</h1>
+              <h1 className="font-black text-base tracking-tight text-white leading-tight">{APP_NAME}</h1>
               <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Enterprise POS</p>
             </div>
           </div>
@@ -924,7 +819,7 @@ export default function EnterpriseApp() {
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-white">Live Kitchen Display System</h2>
-                  <p className="text-xs text-slate-400">Petpooja Multi-round KOT Orders</p>
+                  <p className="text-xs text-slate-400">Multi-round KOT Orders</p>
                 </div>
               </div>
 
@@ -1092,7 +987,7 @@ export default function EnterpriseApp() {
           </div>
         )}
 
-        {/* VIEW 4: PROFESSIONAL RAW INVENTORY (PETPOOJA STYLE) */}
+        {/* VIEW 4: PROFESSIONAL RAW INVENTORY  */}
         {currentView === "inventory" && (
           <div className="flex-1 p-8 bg-slate-900/95 overflow-y-auto">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
@@ -1101,7 +996,7 @@ export default function EnterpriseApp() {
                   <Package className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-black text-white">Petpooja Inventory Management</h2>
+                  <h2 className="text-lg font-black text-white">Inventory Management</h2>
                   <p className="text-xs text-slate-400">Raw material depletion, stock inward & minimum threshold</p>
                 </div>
               </div>
@@ -1191,7 +1086,7 @@ export default function EnterpriseApp() {
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-white">Daily Shift Financials</h2>
-                  <p className="text-xs text-slate-400">Petpooja cash register reconciliation</p>
+                  <p className="text-xs text-slate-400">Cash register reconciliation</p>
                 </div>
               </div>
             </div>
