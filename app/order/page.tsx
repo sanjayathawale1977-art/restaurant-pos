@@ -16,13 +16,6 @@ interface CartItem extends MenuItem {
   quantity: number;
 }
 
-interface OrderItemData {
-  name: string;
-  quantity: number;
-  price: number;
-  round?: number;
-}
-
 function OrderContent() {
   const searchParams = useSearchParams();
   const rawTable = searchParams.get("table") || "T-1";
@@ -73,70 +66,24 @@ function OrderContent() {
     setLoading(true);
 
     try {
-      const { data: existingOrders, error: fetchErr } = await supabase
-        .from("orders")
-        .select("*")
-        .eq("table_number", tableNumber)
-        .neq("status", "Completed")
-        .neq("status", "Cancelled")
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (fetchErr) throw fetchErr;
-
-      if (existingOrders && existingOrders.length > 0) {
-        const existingOrder = existingOrders[0];
-        const currentItems: OrderItemData[] = Array.isArray(existingOrder.items) ? existingOrder.items : [];
-
-        const currentMaxRound = currentItems.reduce((max, it) => Math.max(max, it.round || 1), 1);
-        const nextRound = currentMaxRound + 1;
-
-        const updatedItemsList = [...currentItems];
-
-        cart.forEach((newIt) => {
-          updatedItemsList.push({
-            name: newIt.name,
-            quantity: Number(newIt.quantity),
-            price: Number(newIt.price),
-            round: nextRound,
-          });
-        });
-
-        const newSub = updatedItemsList.reduce((sum, it) => sum + it.price * it.quantity, 0);
-        const newTotal = Math.round(newSub * 1.05);
-
-        const { error: updateErr } = await supabase
-          .from("orders")
-          .update({
-            items: updatedItemsList,
-            total_amount: newTotal,
-            status: "Pending",
-          })
-          .eq("id", existingOrder.id);
-
-        if (updateErr) throw updateErr;
-        setOrderNotification(`Round ${nextRound} order kitchen ko bhej diya gaya hai!`);
-      } else {
-        const freshItems: OrderItemData[] = cart.map((item) => ({
+      // The database function adds this order to the table's running bill
+      // (or starts a new bill) - customers cannot read or change other orders.
+      const { data: round, error } = await supabase.rpc("place_customer_order", {
+        p_table: tableNumber,
+        p_items: cart.map((item) => ({
           name: item.name,
           quantity: Number(item.quantity),
           price: Number(item.price),
-          round: 1,
-        }));
+        })),
+      });
 
-        const { error: insertErr } = await supabase.from("orders").insert([
-          {
-            table_number: tableNumber,
-            items: freshItems,
-            status: "Pending",
-            total_amount: grandTotal,
-            payment_mode: "Pending",
-          },
-        ]);
+      if (error) throw error;
 
-        if (insertErr) throw insertErr;
-        setOrderNotification("Order kitchen ko bhej diya gaya hai!");
-      }
+      setOrderNotification(
+        Number(round) > 1
+          ? `Round ${round} order kitchen ko bhej diya gaya hai!`
+          : "Order kitchen ko bhej diya gaya hai!"
+      );
 
       setCart([]);
       setTimeout(() => setOrderNotification(""), 4000);

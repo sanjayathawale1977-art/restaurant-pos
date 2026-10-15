@@ -24,10 +24,12 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Coffee,
+  LogOut,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import { MENU_DATA, CATEGORIES, type MenuItem } from "./menuData";
 import { RESTAURANT, APP_NAME } from "./restaurantConfig";
+import { useAuth } from "./AuthProvider";
 
 interface CartItem extends MenuItem {
   quantity: number;
@@ -61,6 +63,7 @@ interface InventoryItem {
 const TABLES = ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6"];
 
 export default function EnterpriseApp() {
+  const { fullName, role, isOwner, signOut } = useAuth();
   const [currentView, setCurrentView] = useState<string>("pos");
 
   const [activeOrders, setActiveOrders] = useState<DBOrder[]>([]);
@@ -116,10 +119,10 @@ export default function EnterpriseApp() {
 
   useEffect(() => {
     fetchOrders();
-    fetchInventory();
+    if (isOwner) fetchInventory();
     const interval = setInterval(fetchOrders, 3000);
     return () => clearInterval(interval);
-  }, [fetchOrders, fetchInventory]);
+  }, [fetchOrders, fetchInventory, isOwner]);
 
   const loadOrderForTable = useCallback(
     (tableNum: string, currentOrders: DBOrder[], ignoredList: number[]) => {
@@ -532,6 +535,7 @@ export default function EnterpriseApp() {
               <span>Table QR Stands</span>
             </button>
 
+            {isOwner && (
             <button
               onClick={() => setCurrentView("inventory")}
               className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl font-bold text-xs transition ${
@@ -543,7 +547,9 @@ export default function EnterpriseApp() {
               <Package className="w-4 h-4" />
               <span>Raw Inventory</span>
             </button>
+            )}
 
+            {isOwner && (
             <button
               onClick={() => setCurrentView("reports")}
               className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl font-bold text-xs transition ${
@@ -555,16 +561,34 @@ export default function EnterpriseApp() {
               <BarChart3 className="w-4 h-4" />
               <span>Shift Reports</span>
             </button>
+            )}
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-800/80 bg-slate-950/60">
+        <div className="p-4 border-t border-slate-800/80 bg-slate-950/60 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[11px] font-bold text-slate-300">Station 01</span>
             </div>
             <span className="text-[10px] font-mono text-slate-500">Live POS</span>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-200 truncate">{fullName}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-orange-400">
+                {role === "owner" ? "Owner" : "Staff"}
+              </p>
+            </div>
+            <button
+              onClick={signOut}
+              title="Sign out"
+              className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-bold transition"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
+            </button>
           </div>
         </div>
       </aside>
@@ -988,7 +1012,7 @@ export default function EnterpriseApp() {
         )}
 
         {/* VIEW 4: PROFESSIONAL RAW INVENTORY  */}
-        {currentView === "inventory" && (
+        {currentView === "inventory" && isOwner && (
           <div className="flex-1 p-8 bg-slate-900/95 overflow-y-auto">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
               <div className="flex items-center gap-3">
@@ -1077,7 +1101,7 @@ export default function EnterpriseApp() {
         )}
 
         {/* VIEW 5: SHIFT SALES REPORTS */}
-        {currentView === "reports" && (
+        {currentView === "reports" && isOwner && (
           <div className="flex-1 p-8 bg-slate-900/95 overflow-y-auto">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
               <div className="flex items-center gap-3">
