@@ -22,12 +22,22 @@ import {
   Sparkles,
   RefreshCw,
   AlertTriangle,
-  ArrowUpRight,
-  Coffee,
+  Settings,
+  Percent,
+  Split,
+  Edit2,
+  Save,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
-import { MENU_DATA, CATEGORIES, type MenuItem } from "./menuData";
-import { RESTAURANT, APP_NAME } from "./restaurantConfig";
+
+interface MenuItem {
+  id: number;
+  name: string;
+  category: string;
+  price: number;
+  image: string;
+  is_available?: boolean;
+}
 
 interface CartItem extends MenuItem {
   quantity: number;
@@ -58,14 +68,33 @@ interface InventoryItem {
   unit: string;
 }
 
-const TABLES = ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6"];
+// Recipes Mapping (For Auto Inventory Depletion)
+const RECIPES: Record<string, { ingredient: string; qty: number }[]> = {
+  "Peri Peri French Fries": [{ ingredient: "Potatoes / Fries", qty: 0.2 }],
+  "Veg Cheese Grilled Sandwich": [{ ingredient: "Butter", qty: 0.03 }, { ingredient: "Cheese", qty: 0.05 }],
+  "Paneer Tikka (6 Pcs)": [{ ingredient: "Paneer", qty: 0.2 }],
+  "Paneer Butter Masala": [{ ingredient: "Paneer", qty: 0.25 }, { ingredient: "Butter", qty: 0.05 }],
+  "Dal Makhani Special": [{ ingredient: "Butter", qty: 0.05 }],
+  "Kadhai Paneer": [{ ingredient: "Paneer", qty: 0.2 }],
+  "Butter Naan": [{ ingredient: "Flour / Maida", qty: 0.1 }, { ingredient: "Butter", qty: 0.02 }],
+  "Tandoori Butter Roti": [{ ingredient: "Flour / Maida", qty: 0.08 }, { ingredient: "Butter", qty: 0.01 }],
+  "Hyderabadi Veg Biryani": [{ ingredient: "Basmati Rice", qty: 0.2 }, { ingredient: "Paneer", qty: 0.05 }],
+  "Jeera Rice with Dal Tadka": [{ ingredient: "Basmati Rice", qty: 0.15 }, { ingredient: "Butter", qty: 0.02 }],
+  "Cold Coffee with Ice Cream": [{ ingredient: "Milk", qty: 0.25 }, { ingredient: "Coffee Beans", qty: 0.02 }],
+  "Special Kullad Masala Chai": [{ ingredient: "Milk", qty: 0.15 }],
+};
 
 export default function EnterpriseApp() {
   const [currentView, setCurrentView] = useState<string>("pos");
 
+  // Dynamic Data States
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [tablesList, setTablesList] = useState<string[]>([]);
   const [activeOrders, setActiveOrders] = useState<DBOrder[]>([]);
   const [allOrdersHistory, setAllOrdersHistory] = useState<DBOrder[]>([]);
+  const [inventoryList, setInventoryList] = useState<InventoryItem[]>([]);
 
+  // POS State
   const [selectedTable, setSelectedTable] = useState<string>("T-1");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -75,28 +104,51 @@ export default function EnterpriseApp() {
   const [orderSuccess, setOrderSuccess] = useState<boolean>(false);
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [ignoredOrderIds, setIgnoredOrderIds] = useState<number[]>([]);
-  const [printBillNo, setPrintBillNo] = useState<number | null>(null);
   const isEditingManually = useRef<boolean>(false);
+
+  // Feature 4 & 5: Discounts, GST, and Split Payment States
+  const [isGstEnabled, setIsGstEnabled] = useState<boolean>(true);
+  const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
+  const [paymentModeType, setPaymentModeType] = useState<"Full" | "Split">("Full");
+  const [cashPart, setCashPart] = useState<string>("");
+  const [upiPart, setUpiPart] = useState<string>("");
   const [confirmedPaymentMode, setConfirmedPaymentMode] = useState<string>("Cash");
 
-  const [inventoryList, setInventoryList] = useState<InventoryItem[]>([]);
-  const [invLoading, setInvLoading] = useState<boolean>(false);
-  const [stockInputVal, setStockInputVal] = useState<Record<number, string>>({});
+  // Feature 1: Menu Editor State
+  const [editingPriceId, setEditingPriceId] = useState<number | null>(null);
+  const [tempPrice, setTempPrice] = useState<string>("");
+  const [newDishName, setNewDishName] = useState<string>("");
+  const [newDishPrice, setNewDishPrice] = useState<string>("");
+  const [newDishCategory, setNewDishCategory] = useState<string>("Cafe & Snacks");
+
+  // Feature 2: Table Manager State
+  const [newTableName, setNewTableName] = useState<string>("");
+
+  // Feature 3: Kitchen Print Slip Data
+  const [kotPrintItems, setKotPrintItems] = useState<{ round: number; items: OrderItemData[] } | null>(null);
+
+  // Sync Live Data
+  const fetchMenuItems = useCallback(async () => {
+    const { data } = await supabase.from("menu_items").select("*").order("id");
+    if (data && data.length > 0) setMenuItems(data as MenuItem[]);
+  }, []);
+
+  const fetchTables = useCallback(async () => {
+    const { data } = await supabase.from("restaurant_tables").select("name").order("id");
+    if (data && data.length > 0) {
+      setTablesList(data.map((t) => t.name));
+    } else {
+      setTablesList(["T-1", "T-2", "T-3", "T-4", "T-5", "T-6"]);
+    }
+  }, []);
 
   const fetchOrders = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("orders")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (!error && data) {
+      const { data } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
+      if (data) {
         setAllOrdersHistory(data as DBOrder[]);
-        const active = (data as DBOrder[]).filter(
-          (o) => o.status !== "Completed" && o.status !== "Cancelled"
-        );
-        setActiveOrders(active);
+        setActiveOrders((data as DBOrder[]).filter((o) => o.status !== "Completed" && o.status !== "Cancelled"));
       }
     } catch {
       console.error("Order sync error");
@@ -104,27 +156,23 @@ export default function EnterpriseApp() {
   }, []);
 
   const fetchInventory = useCallback(async () => {
-    setInvLoading(true);
-    try {
-      const { data } = await supabase.from("inventory_items").select("*").order("name");
-      if (data) setInventoryList(data as InventoryItem[]);
-    } catch {
-      console.error("Inventory sync error");
-    }
-    setInvLoading(false);
+    const { data } = await supabase.from("inventory_items").select("*").order("name");
+    if (data) setInventoryList(data as InventoryItem[]);
   }, []);
 
   useEffect(() => {
+    fetchMenuItems();
+    fetchTables();
     fetchOrders();
     fetchInventory();
     const interval = setInterval(fetchOrders, 3000);
     return () => clearInterval(interval);
-  }, [fetchOrders, fetchInventory]);
+  }, [fetchMenuItems, fetchTables, fetchOrders, fetchInventory]);
 
+  // Load Order For Current Selected Table
   const loadOrderForTable = useCallback(
     (tableNum: string, currentOrders: DBOrder[], ignoredList: number[]) => {
       if (isEditingManually.current) return;
-
       const cleanNum = tableNum.replace("T-", "");
       const matching = currentOrders.filter(
         (o) =>
@@ -135,7 +183,6 @@ export default function EnterpriseApp() {
 
       if (matching.length > 0) {
         setActiveOrderId(matching[0].id);
-
         const map: Record<string, { qty: number; price: number; round: number }> = {};
         matching.forEach((ord) => {
           if (Array.isArray(ord.items)) {
@@ -149,9 +196,9 @@ export default function EnterpriseApp() {
         });
 
         const mapped: CartItem[] = Object.entries(map).map(([name, val], idx) => {
-          const menuItem = MENU_DATA.find((m) => m.name === name);
+          const menuItem = menuItems.find((m) => m.name === name);
           return {
-            id: menuItem ? menuItem.id : 9000 + idx,
+            id: menuItem ? menuItem.id : 9500 + idx,
             name,
             category: menuItem ? menuItem.category : "Food",
             price: val.price,
@@ -160,14 +207,13 @@ export default function EnterpriseApp() {
             image: menuItem ? menuItem.image : "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=400&q=80",
           };
         });
-
         setCart(mapped);
       } else {
         setActiveOrderId(null);
         setCart([]);
       }
     },
-    []
+    [menuItems]
   );
 
   const handleSelectTable = (table: string) => {
@@ -180,14 +226,13 @@ export default function EnterpriseApp() {
     loadOrderForTable(selectedTable, activeOrders, ignoredOrderIds);
   }, [activeOrders, selectedTable, ignoredOrderIds, loadOrderForTable]);
 
+  // POS Cart Handlers
   const addToCart = (item: MenuItem) => {
     isEditingManually.current = true;
     setCart((prev) => {
       const existing = prev.find((i) => i.id === item.id);
       if (existing) {
-        return prev.map((i) =>
-          i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i
-        );
+        return prev.map((i) => (i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i));
       }
       return [...prev, { ...item, quantity: 1, round: 1 }];
     });
@@ -215,24 +260,28 @@ export default function EnterpriseApp() {
 
   const handleClearBlankBill = () => {
     isEditingManually.current = false;
-    if (activeOrderId) {
-      setIgnoredOrderIds((prev) => [...prev, activeOrderId]);
-    }
+    if (activeOrderId) setIgnoredOrderIds((prev) => [...prev, activeOrderId]);
     setActiveOrderId(null);
-    setPrintBillNo(null);
     setCart([]);
+    setDiscountPercent(0);
   };
 
+  // Math Calculations (Subtotal, Discount, Dynamic GST, Grand Total)
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  const gst = Math.round(subtotal * 0.05);
-  const grandTotal = subtotal + gst;
+  const discountAmount = Math.round((subtotal * discountPercent) / 100);
+  const netAfterDiscount = Math.max(0, subtotal - discountAmount);
+  const gst = isGstEnabled ? Math.round(netAfterDiscount * 0.05) : 0;
+  const grandTotal = netAfterDiscount + gst;
 
-  // Multi-Round KOT Handler
+  // Feature 3: Kitchen Thermal Print KOT & Send Handler
   const handleSendToKitchenOrAppend = async () => {
     if (cart.length === 0) return;
     setLoading(true);
 
     try {
+      let newlyAddedItems: OrderItemData[] = [];
+      let roundNum = 1;
+
       if (activeOrderId) {
         const { data: currentOrderData } = await supabase
           .from("orders")
@@ -244,58 +293,46 @@ export default function EnterpriseApp() {
           currentOrderData && Array.isArray(currentOrderData.items) ? currentOrderData.items : [];
 
         const maxPrevRound = prevItems.reduce((max, it) => Math.max(max, it.round || 1), 1);
-        const nextRound = maxPrevRound + 1;
+        roundNum = maxPrevRound + 1;
 
         const updatedList: OrderItemData[] = [];
         const prevCountMap: Record<string, number> = {};
 
         prevItems.forEach((p) => {
           prevCountMap[p.name] = (prevCountMap[p.name] || 0) + p.quantity;
-          updatedList.push({
-            name: p.name,
-            quantity: p.quantity,
-            price: p.price,
-            round: p.round || 1,
-          });
+          updatedList.push({ name: p.name, quantity: p.quantity, price: p.price, round: p.round || 1 });
         });
 
         cart.forEach((cItem) => {
           const prevQty = prevCountMap[cItem.name] || 0;
           if (cItem.quantity > prevQty) {
             const extraQty = cItem.quantity - prevQty;
-            updatedList.push({
-              name: cItem.name,
-              quantity: extraQty,
-              price: cItem.price,
-              round: nextRound,
-            });
+            const newItemObj = { name: cItem.name, quantity: extraQty, price: cItem.price, round: roundNum };
+            updatedList.push(newItemObj);
+            newlyAddedItems.push(newItemObj);
           }
         });
 
-        const { error: updateError } = await supabase
+        const { error } = await supabase
           .from("orders")
-          .update({
-            items: updatedList,
-            total_amount: grandTotal,
-            status: "Pending",
-          })
+          .update({ items: updatedList, total_amount: grandTotal, status: "Pending" })
           .eq("id", activeOrderId);
-
-        if (updateError) throw updateError;
+        if (error) throw error;
       } else {
-        const formattedItems = cart.map((item) => ({
+        const freshItems = cart.map((item) => ({
           name: item.name,
           quantity: Number(item.quantity),
           price: Number(item.price),
           round: 1,
         }));
+        newlyAddedItems = freshItems;
 
-        const { data: inserted, error: insertError } = await supabase
+        const { data: inserted, error } = await supabase
           .from("orders")
           .insert([
             {
               table_number: selectedTable,
-              items: formattedItems,
+              items: freshItems,
               status: "Pending",
               total_amount: grandTotal,
               payment_mode: "Pending",
@@ -303,10 +340,13 @@ export default function EnterpriseApp() {
           ])
           .select("id");
 
-        if (insertError) throw insertError;
-        if (inserted && inserted.length > 0) {
-          setActiveOrderId(inserted[0].id);
-        }
+        if (error) throw error;
+        if (inserted && inserted.length > 0) setActiveOrderId(inserted[0].id);
+      }
+
+      // Feature 3: Set items to trigger printable KOT thermal slip
+      if (newlyAddedItems.length > 0) {
+        setKotPrintItems({ round: roundNum, items: newlyAddedItems });
       }
 
       isEditingManually.current = false;
@@ -314,18 +354,68 @@ export default function EnterpriseApp() {
       fetchOrders();
       setTimeout(() => setKotSuccess(false), 2500);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Error";
-      alert("KOT error: " + message);
+      const message = err instanceof Error ? err.message : "KOT Failed";
+      alert("Error: " + message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Final Settlement
-  const finalizeOrderWithPayment = async (mode: "Cash" | "Online") => {
+  // Feature 6: Auto Inventory Depletion on Settle Bill
+  const deductInventoryStockOnSettle = async (itemsToDeduct: CartItem[]) => {
+    try {
+      const usageMap: Record<string, number> = {};
+      itemsToDeduct.forEach((item) => {
+        const recipe = RECIPES[item.name];
+        if (recipe) {
+          recipe.forEach((ing) => {
+            usageMap[ing.ingredient] = (usageMap[ing.ingredient] || 0) + ing.qty * item.quantity;
+          });
+        }
+      });
+
+      const ingredients = Object.keys(usageMap);
+      if (ingredients.length === 0) return;
+
+      const { data: stockItems } = await supabase
+        .from("inventory_items")
+        .select("id, name, current_stock")
+        .in("name", ingredients);
+
+      if (stockItems && stockItems.length > 0) {
+        await Promise.all(
+          stockItems.map((sItem) => {
+            const used = usageMap[sItem.name] || 0;
+            const updated = Math.max(0, Number(sItem.current_stock) - used);
+            return supabase
+              .from("inventory_items")
+              .update({ current_stock: Number(updated.toFixed(2)) })
+              .eq("id", sItem.id);
+          })
+        );
+      }
+    } catch (e) {
+      console.warn("Inventory depletion non-fatal notice:", e);
+    }
+  };
+
+  // Feature 4: Settle Bill (Supports Full & Split Payments)
+  const finalizeOrderWithPayment = async (selectedMode: "Cash" | "Online" | "Split") => {
     if (cart.length === 0) return;
     setLoading(true);
-    setConfirmedPaymentMode(mode);
+
+    let finalModeLabel = selectedMode;
+    if (selectedMode === "Split") {
+      const cashVal = Number(cashPart) || 0;
+      const upiVal = Number(upiPart) || 0;
+      if (cashVal + upiVal !== grandTotal) {
+        alert(`Split amount total (₹${cashVal + upiVal}) must equal Grand Total (₹${grandTotal})`);
+        setLoading(false);
+        return;
+      }
+      finalModeLabel = `Split (Cash: ₹${cashVal} | UPI: ₹${upiVal})` as any;
+    }
+    setConfirmedPaymentMode(finalModeLabel);
 
     try {
       const formattedItems = cart.map((i) => ({
@@ -335,69 +425,89 @@ export default function EnterpriseApp() {
       }));
 
       if (activeOrderId) {
-        const { error } = await supabase
+        await supabase
           .from("orders")
           .update({
-            payment_mode: mode,
+            payment_mode: finalModeLabel,
             status: "Completed",
             total_amount: grandTotal,
             items: formattedItems,
           })
           .eq("id", activeOrderId);
-
-        if (error) throw error;
-        setPrintBillNo(activeOrderId);
       } else {
-        const { data: newBill, error } = await supabase
-          .from("orders")
-          .insert([
-            {
-              table_number: selectedTable,
-              items: formattedItems,
-              status: "Completed",
-              total_amount: grandTotal,
-              payment_mode: mode,
-            },
-          ])
-          .select("id");
-
-        if (error) throw error;
-        if (newBill && newBill.length > 0) setPrintBillNo(newBill[0].id);
+        await supabase.from("orders").insert([
+          {
+            table_number: selectedTable,
+            items: formattedItems,
+            status: "Completed",
+            total_amount: grandTotal,
+            payment_mode: finalModeLabel,
+          },
+        ]);
       }
+
+      // Feature 6: Deplete ingredients automatically
+      await deductInventoryStockOnSettle(cart);
 
       setShowPaymentModal(false);
       setOrderSuccess(true);
       isEditingManually.current = false;
 
+      // Print Final Tax Invoice
       setTimeout(() => window.print(), 300);
 
       setTimeout(() => {
         setOrderSuccess(false);
         handleClearBlankBill();
         fetchOrders();
+        fetchInventory();
       }, 2000);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Payment failed";
-      alert("Payment failed: " + message);
+      const message = err instanceof Error ? err.message : "Payment error";
+      alert("Error: " + message);
     } finally {
       setLoading(false);
     }
   };
 
-  const updateKitchenStatus = async (id: number, status: string) => {
-    await supabase.from("orders").update({ status }).eq("id", id);
-    fetchOrders();
+  // Feature 1: Menu Price & Item Management Handlers
+  const handleUpdatePrice = async (id: number) => {
+    const p = Number(tempPrice);
+    if (isNaN(p) || p <= 0) return;
+    await supabase.from("menu_items").update({ price: p }).eq("id", id);
+    setEditingPriceId(null);
+    fetchMenuItems();
   };
 
-  // Professional Inventory Stock Update
-  const handleStockUpdate = async (id: number, currentStock: number, addVal: number) => {
-    const newStock = Math.max(0, currentStock + addVal);
-    await supabase.from("inventory_items").update({ current_stock: newStock }).eq("id", id);
-    setStockInputVal((prev) => ({ ...prev, [id]: "" }));
-    fetchInventory();
+  const handleAddNewDish = async () => {
+    if (!newDishName || !newDishPrice) return;
+    await supabase.from("menu_items").insert([
+      {
+        name: newDishName,
+        price: Number(newDishPrice),
+        category: newDishCategory,
+        image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80",
+        is_available: true,
+      },
+    ]);
+    setNewDishName("");
+    setNewDishPrice("");
+    fetchMenuItems();
+    alert("Naya dish menu mein add ho gaya!");
   };
 
-  const filteredMenu = MENU_DATA.filter((item) => {
+  // Feature 2: Table Add/Remove Handler
+  const handleAddTable = async () => {
+    if (!newTableName) return;
+    const formatted = newTableName.startsWith("T-") ? newTableName : `T-${newTableName}`;
+    await supabase.from("restaurant_tables").insert([{ name: formatted }]);
+    setNewTableName("");
+    fetchTables();
+  };
+
+  // Categories Filtered Menu
+  const categoriesList = ["All", ...Array.from(new Set(menuItems.map((m) => m.category)))];
+  const filteredMenu = menuItems.filter((item) => {
     const matchesCategory = selectedCategory === "All" || item.category === selectedCategory;
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
@@ -405,77 +515,72 @@ export default function EnterpriseApp() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-900 font-sans text-slate-100 antialiased">
-      {/* 80mm Print Receipt */}
+      {/* 80mm PRINT TAX INVOICE (CUSTOMER BILL) */}
       <div id="printable-receipt">
         <div className="text-center pb-2 border-b border-dashed border-black">
-          <h2 className="font-bold text-base tracking-wider">{RESTAURANT.name}</h2>
-          <p className="text-[11px] text-gray-700">{RESTAURANT.address}</p>
-          <p className="text-[11px] text-gray-700">Ph: {RESTAURANT.phone}</p>
-          {RESTAURANT.gstin && (
-            <p className="text-[11px] text-gray-700">GSTIN: {RESTAURANT.gstin}</p>
-          )}
-          <h3 className="font-bold text-xs tracking-wider mt-1">
-            {RESTAURANT.gstin ? "TAX INVOICE" : "BILL"}
-          </h3>
-          <p className="text-[11px] text-gray-700">Dine-in Customer Bill</p>
+          <h2 className="font-bold text-base tracking-wider">TAX INVOICE</h2>
+          <p className="text-[10px] text-gray-700">Dine-in Customer Bill</p>
         </div>
 
-        <div className="text-[11px] py-2 border-b border-dashed border-black space-y-0.5">
+        <div className="text-[11px] py-1 border-b border-dashed border-black space-y-0.5">
           <div className="flex justify-between">
-            <span>Bill No: <strong>{printBillNo ?? activeOrderId ?? "-"}</strong></span>
+            <span>Table: <strong>{selectedTable}</strong></span>
             <span>Date: {new Date().toLocaleDateString("en-IN")}</span>
           </div>
           <div className="flex justify-between">
-            <span>Table: <strong>{selectedTable}</strong></span>
             <span>Time: {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Payment: <strong>{confirmedPaymentMode.toUpperCase()}</strong></span>
+            <span>Mode: <strong>{confirmedPaymentMode}</strong></span>
           </div>
         </div>
 
         <table className="w-full text-[11px] my-2">
           <thead>
             <tr className="border-b border-black text-left">
-              <th className="py-1">Item</th>
-              <th className="text-center py-1">Qty</th>
-              <th className="text-right py-1">Price</th>
-              <th className="text-right py-1">Amt</th>
+              <th className="py-0.5">Item</th>
+              <th className="text-center py-0.5">Qty</th>
+              <th className="text-right py-0.5">Price</th>
+              <th className="text-right py-0.5">Amt</th>
             </tr>
           </thead>
           <tbody>
             {cart.map((item) => (
-              <tr key={item.id} className="border-b border-dotted border-gray-400">
-                <td className="py-1 pr-1">{item.name}</td>
-                <td className="text-center py-1">{item.quantity}</td>
-                <td className="text-right py-1">{item.price}</td>
-                <td className="text-right py-1 font-semibold">{item.price * item.quantity}</td>
+              <tr key={item.id} className="border-b border-dotted border-gray-300">
+                <td className="py-0.5 pr-1">{item.name}</td>
+                <td className="text-center py-0.5">{item.quantity}</td>
+                <td className="text-right py-0.5">{item.price}</td>
+                <td className="text-right py-0.5 font-semibold">{item.price * item.quantity}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <div className="text-[11px] pt-1 border-t border-dashed border-black space-y-1">
+        <div className="text-[11px] pt-1 border-t border-dashed border-black space-y-0.5">
           <div className="flex justify-between">
             <span>Subtotal:</span>
             <span>₹{subtotal.toFixed(2)}</span>
           </div>
+          {discountPercent > 0 && (
+            <div className="flex justify-between text-black font-bold">
+              <span>Discount ({discountPercent}%):</span>
+              <span>-₹{discountAmount.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between">
-            <span>GST (5%):</span>
-            <span>₹{(gst).toFixed(2)}</span>
+            <span>GST ({isGstEnabled ? "5%" : "0%"}):</span>
+            <span>₹{gst.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between font-bold text-xs pt-1 border-t border-black">
+          <div className="flex justify-between font-black text-xs pt-1 border-t border-black">
             <span>Grand Total:</span>
             <span>₹{grandTotal.toFixed(2)}</span>
           </div>
         </div>
 
-        <div className="text-center text-[10px] mt-4 pt-2 border-t border-dashed border-black">
-          <p className="font-semibold">*** {RESTAURANT.footer} ***</p>
+        <div className="text-center text-[10px] mt-3 pt-1 border-t border-dashed border-black">
+          <p className="font-semibold">*** Thank You! Visit Again ***</p>
         </div>
       </div>
 
-      {/* ================= LEFT SLIM SIDEBAR (APP SWITCHER) ================= */}
+      {/* ================= LEFT SLIM NAVIGATION SIDEBAR ================= */}
       <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between shrink-0 select-none">
         <div>
           <div className="p-5 flex items-center gap-3 border-b border-slate-800/80">
@@ -483,7 +588,7 @@ export default function EnterpriseApp() {
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="font-black text-base tracking-tight text-white leading-tight">{APP_NAME}</h1>
+              <h1 className="font-black text-base tracking-tight text-white leading-tight">RestoSync</h1>
               <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Enterprise POS</p>
             </div>
           </div>
@@ -492,9 +597,7 @@ export default function EnterpriseApp() {
             <button
               onClick={() => setCurrentView("pos")}
               className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl font-bold text-xs transition ${
-                currentView === "pos"
-                  ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-900"
+                currentView === "pos" ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20" : "text-slate-400 hover:text-white hover:bg-slate-900"
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -504,9 +607,7 @@ export default function EnterpriseApp() {
             <button
               onClick={() => setCurrentView("kitchen")}
               className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl font-bold text-xs transition ${
-                currentView === "kitchen"
-                  ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-900"
+                currentView === "kitchen" ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20" : "text-slate-400 hover:text-white hover:bg-slate-900"
               }`}
             >
               <div className="flex items-center gap-3.5">
@@ -521,23 +622,29 @@ export default function EnterpriseApp() {
             </button>
 
             <button
+              onClick={() => setCurrentView("menu-manager")}
+              className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl font-bold text-xs transition ${
+                currentView === "menu-manager" ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20" : "text-slate-400 hover:text-white hover:bg-slate-900"
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Menu & Prices</span>
+            </button>
+
+            <button
               onClick={() => setCurrentView("tables")}
               className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl font-bold text-xs transition ${
-                currentView === "tables"
-                  ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-900"
+                currentView === "tables" ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20" : "text-slate-400 hover:text-white hover:bg-slate-900"
               }`}
             >
               <QrCode className="w-4 h-4" />
-              <span>Table QR Stands</span>
+              <span>Tables & QRs</span>
             </button>
 
             <button
               onClick={() => setCurrentView("inventory")}
               className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl font-bold text-xs transition ${
-                currentView === "inventory"
-                  ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-900"
+                currentView === "inventory" ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20" : "text-slate-400 hover:text-white hover:bg-slate-900"
               }`}
             >
               <Package className="w-4 h-4" />
@@ -547,9 +654,7 @@ export default function EnterpriseApp() {
             <button
               onClick={() => setCurrentView("reports")}
               className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl font-bold text-xs transition ${
-                currentView === "reports"
-                  ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-900"
+                currentView === "reports" ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20" : "text-slate-400 hover:text-white hover:bg-slate-900"
               }`}
             >
               <BarChart3 className="w-4 h-4" />
@@ -564,27 +669,25 @@ export default function EnterpriseApp() {
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[11px] font-bold text-slate-300">Station 01</span>
             </div>
-            <span className="text-[10px] font-mono text-slate-500">Live POS</span>
+            <span className="text-[10px] font-mono text-slate-500">Akola Main</span>
           </div>
         </div>
       </aside>
 
-      {/* ================= RIGHT VIEW CONTAINER ================= */}
+      {/* ================= MAIN VIEW CONTAINER ================= */}
       <div className="flex-1 flex overflow-hidden">
-        {/* VIEW 1: POS BILLING & EXPANDED MENU */}
+        {/* VIEW 1: POS BILLING & DYNAMIC TABLES */}
         {currentView === "pos" && (
           <>
             <main className="flex-1 flex flex-col bg-slate-900/90 overflow-hidden">
+              {/* Dynamic Tables Selector Bar */}
               <div className="p-5 border-b border-slate-800 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
                   <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 mr-1">Tables:</span>
-                  {TABLES.map((table) => {
+                  {tablesList.map((table) => {
                     const clean = table.replace("T-", "");
                     const matching = activeOrders.filter(
-                      (o) =>
-                        (o.table_number === table || o.table_number === clean) &&
-                        o.status !== "Completed" &&
-                        !ignoredOrderIds.includes(o.id)
+                      (o) => (o.table_number === table || o.table_number === clean) && o.status !== "Completed" && !ignoredOrderIds.includes(o.id)
                     );
                     const hasActiveOrder = matching.length > 0;
                     const isSelected = selectedTable === table;
@@ -625,15 +728,14 @@ export default function EnterpriseApp() {
                 </div>
               </div>
 
+              {/* Categories */}
               <div className="px-5 py-3 border-b border-slate-800/60 flex gap-2 overflow-x-auto no-scrollbar">
-                {CATEGORIES.map((cat) => (
+                {categoriesList.map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}
                     className={`px-4 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-                      selectedCategory === cat
-                        ? "bg-white text-slate-900 shadow-md"
-                        : "bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800"
+                      selectedCategory === cat ? "bg-white text-slate-900 shadow-md" : "bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800"
                     }`}
                   >
                     {cat}
@@ -641,6 +743,7 @@ export default function EnterpriseApp() {
                 ))}
               </div>
 
+              {/* Food Dishes Grid */}
               <div className="flex-1 p-5 overflow-y-auto grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {filteredMenu.map((item) => (
                   <div
@@ -649,20 +752,14 @@ export default function EnterpriseApp() {
                     className="bg-slate-950/70 border border-slate-800/80 hover:border-orange-500/50 rounded-2xl p-3 flex flex-col justify-between group hover:-translate-y-0.5 transition duration-150 cursor-pointer shadow-md"
                   >
                     <div className="relative h-32 w-full overflow-hidden rounded-xl bg-slate-900">
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                      />
+                      <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-200" />
                       <span className="absolute top-2 left-2 text-[10px] font-bold text-slate-200 bg-slate-900/90 backdrop-blur-md px-2 py-0.5 rounded-md border border-slate-700/40">
                         {item.category}
                       </span>
                     </div>
 
                     <div className="pt-2.5">
-                      <h3 className="font-bold text-xs text-slate-200 truncate group-hover:text-orange-400 transition">
-                        {item.name}
-                      </h3>
+                      <h3 className="font-bold text-xs text-slate-200 truncate group-hover:text-orange-400 transition">{item.name}</h3>
                       <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/60">
                         <span className="font-extrabold text-sm text-white">₹{item.price}</span>
                         <div className="p-1.5 bg-orange-500/20 text-orange-400 group-hover:bg-orange-500 group-hover:text-white rounded-lg transition">
@@ -675,27 +772,22 @@ export default function EnterpriseApp() {
               </div>
             </main>
 
-            {/* Sticky Order Panel */}
-            <aside className="w-[380px] bg-slate-950 border-l border-slate-800 flex flex-col justify-between shrink-0 shadow-2xl">
+            {/* Sticky Bill Panel with Discounts & Dynamic GST */}
+            <aside className="w-[390px] bg-slate-950 border-l border-slate-800 flex flex-col justify-between shrink-0 shadow-2xl">
               <div className="p-4 border-b border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 bg-orange-500/20 text-orange-400 rounded-xl">
                     <ShoppingCart className="w-4 h-4" />
                   </div>
                   <div>
-                    <h2 className="font-black text-xs text-white uppercase tracking-wider">
-                      {activeOrderId ? `Running Bill #${activeOrderId}` : "Current Bill"}
-                    </h2>
+                    <h2 className="font-black text-xs text-white uppercase tracking-wider">{activeOrderId ? `Bill #${activeOrderId}` : "Current Bill"}</h2>
                     <p className="text-[11px] text-slate-400">Table: <strong className="text-orange-400 font-black">{selectedTable}</strong></p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1.5">
                   {cart.length > 0 && (
-                    <button
-                      onClick={handleClearBlankBill}
-                      className="flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-red-400 px-2.5 py-1 rounded-lg hover:bg-slate-900 transition"
-                    >
+                    <button onClick={handleClearBlankBill} className="flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-red-400 px-2.5 py-1 rounded-lg hover:bg-slate-900 transition">
                       <RotateCcw className="w-3 h-3" />
                       <span>Reset</span>
                     </button>
@@ -713,6 +805,7 @@ export default function EnterpriseApp() {
                 </div>
               )}
 
+              {/* Items List */}
               <div className="flex-1 p-4 overflow-y-auto space-y-2">
                 {cart.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-600">
@@ -722,10 +815,7 @@ export default function EnterpriseApp() {
                   </div>
                 ) : (
                   cart.map((item) => (
-                    <div
-                      key={item.id}
-                      className="bg-slate-900/80 border border-slate-800/80 p-2.5 rounded-xl flex items-center justify-between"
-                    >
+                    <div key={item.id} className="bg-slate-900/80 border border-slate-800/80 p-2.5 rounded-xl flex items-center justify-between">
                       <div className="flex-1 min-w-0 pr-2">
                         <p className="font-bold text-xs text-slate-200 truncate">{item.name}</p>
                         <p className="text-[11px] text-slate-400 mt-0.5">
@@ -734,23 +824,14 @@ export default function EnterpriseApp() {
                       </div>
 
                       <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => updateQuantity(item.id, -1)}
-                          className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300"
-                        >
+                        <button onClick={() => updateQuantity(item.id, -1)} className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300">
                           <Minus className="w-3 h-3" />
                         </button>
                         <span className="w-5 text-center text-xs font-bold text-white">{item.quantity}</span>
-                        <button
-                          onClick={() => updateQuantity(item.id, 1)}
-                          className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300"
-                        >
+                        <button onClick={() => updateQuantity(item.id, 1)} className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300">
                           <Plus className="w-3 h-3" />
                         </button>
-                        <button
-                          onClick={() => removeItem(item.id)}
-                          className="p-1 text-slate-500 hover:text-red-400 ml-0.5"
-                        >
+                        <button onClick={() => removeItem(item.id)} className="p-1 text-slate-500 hover:text-red-400 ml-0.5">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -759,14 +840,53 @@ export default function EnterpriseApp() {
                 )}
               </div>
 
-              <div className="p-4 border-t border-slate-800 bg-slate-950/80 space-y-2">
+              {/* Bill Configurations (Discount, GST Toggle, Totals) */}
+              <div className="p-4 border-t border-slate-800 bg-slate-950/80 space-y-2.5">
+                {/* Feature 4 & 5 Controls */}
+                <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-800/80">
+                  {/* Discount Select */}
+                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-2 py-1">
+                    <Percent className="w-3 h-3 text-orange-400" />
+                    <span className="text-[10px] text-slate-400 font-bold">Disc:</span>
+                    <select
+                      value={discountPercent}
+                      onChange={(e) => setDiscountPercent(Number(e.target.value))}
+                      className="bg-transparent text-xs text-white font-bold focus:outline-none"
+                    >
+                      <option value={0} className="bg-slate-900">0%</option>
+                      <option value={5} className="bg-slate-900">5%</option>
+                      <option value={10} className="bg-slate-900">10%</option>
+                      <option value={15} className="bg-slate-900">15%</option>
+                    </select>
+                  </div>
+
+                  {/* GST Toggle */}
+                  <button
+                    onClick={() => setIsGstEnabled(!isGstEnabled)}
+                    className={`flex items-center justify-center gap-1.5 rounded-xl px-2 py-1 border text-xs font-bold transition ${
+                      isGstEnabled
+                        ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                        : "bg-slate-900 border-slate-800 text-slate-500"
+                    }`}
+                  >
+                    <span>GST (5%):</span>
+                    <span>{isGstEnabled ? "ON" : "OFF"}</span>
+                  </button>
+                </div>
+
                 <div className="space-y-1 text-xs text-slate-400">
                   <div className="flex justify-between">
                     <span>Subtotal:</span>
                     <span className="text-slate-200 font-semibold">₹{subtotal.toFixed(2)}</span>
                   </div>
+                  {discountPercent > 0 && (
+                    <div className="flex justify-between text-orange-400 font-semibold">
+                      <span>Discount ({discountPercent}%):</span>
+                      <span>-₹{discountAmount.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
-                    <span>GST (5%):</span>
+                    <span>GST ({isGstEnabled ? "5%" : "0%"}):</span>
                     <span className="text-slate-200 font-semibold">₹{gst.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-base font-black text-white pt-2 border-t border-slate-800">
@@ -775,6 +895,7 @@ export default function EnterpriseApp() {
                   </div>
                 </div>
 
+                {/* Settle & Actions */}
                 <div className="pt-2 grid grid-cols-2 gap-2">
                   <button
                     onClick={() => window.print()}
@@ -786,7 +907,11 @@ export default function EnterpriseApp() {
                   </button>
 
                   <button
-                    onClick={() => setShowPaymentModal(true)}
+                    onClick={() => {
+                      setCashPart(String(grandTotal));
+                      setUpiPart("0");
+                      setShowPaymentModal(true);
+                    }}
                     disabled={cart.length === 0 || loading}
                     className="py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 rounded-xl text-xs font-black text-white flex items-center justify-center gap-1.5 transition shadow-lg shadow-orange-500/20"
                   >
@@ -819,14 +944,10 @@ export default function EnterpriseApp() {
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-white">Live Kitchen Display System</h2>
-                  <p className="text-xs text-slate-400">Multi-round KOT Orders</p>
+                  <p className="text-xs text-slate-400">Multi-round KOT Tickets</p>
                 </div>
               </div>
-
-              <button
-                onClick={fetchOrders}
-                className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition text-slate-300"
-              >
+              <button onClick={fetchOrders} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition text-slate-300">
                 <RefreshCw className="w-4 h-4" />
               </button>
             </div>
@@ -835,7 +956,6 @@ export default function EnterpriseApp() {
               <div className="flex flex-col items-center justify-center py-28 text-slate-500">
                 <ChefHat className="w-16 h-16 mb-3 opacity-30" />
                 <p className="text-base font-bold text-slate-400">All Kitchen Orders Clear!</p>
-                <p className="text-xs text-slate-500 mt-1">No pending orders from dining tables.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
@@ -848,62 +968,32 @@ export default function EnterpriseApp() {
                       roundGroups[r].push(item);
                     });
                   }
-
                   const availableRounds = Object.keys(roundGroups).map(Number).sort((a, b) => a - b);
 
                   return (
-                    <div
-                      key={ord.id}
-                      className="bg-slate-950 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between"
-                    >
+                    <div key={ord.id} className="bg-slate-950 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between">
                       <div>
                         <div className="flex justify-between items-start mb-4 pb-3 border-b border-slate-800">
                           <div>
                             <span className="text-2xl font-black text-orange-400">{ord.table_number}</span>
                             <p className="text-[11px] text-slate-500 mt-0.5">Order #{ord.id}</p>
                           </div>
-                          <span
-                            className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${
-                              ord.status === "Ready"
-                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : ord.status === "Preparing"
-                                ? "bg-sky-500/20 text-sky-400 border border-sky-500/30"
-                                : "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse"
-                            }`}
-                          >
+                          <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${ord.status === "Ready" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400 animate-pulse"}`}>
                             {ord.status}
                           </span>
                         </div>
 
                         <div className="space-y-3">
                           {availableRounds.map((rnd) => (
-                            <div
-                              key={rnd}
-                              className={`rounded-2xl p-3 border ${
-                                rnd > 1 ? "bg-amber-950/30 border-amber-500/40" : "bg-slate-900/60 border-slate-800"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between mb-2">
-                                <span
-                                  className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
-                                    rnd > 1 ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-300"
-                                  }`}
-                                >
-                                  Round {rnd} {rnd > 1 ? "★ NEW" : ""}
-                                </span>
-                              </div>
-
-                              <div className="space-y-1.5">
+                            <div key={rnd} className={`rounded-2xl p-3 border ${rnd > 1 ? "bg-amber-950/30 border-amber-500/40" : "bg-slate-900/60 border-slate-800"}`}>
+                              <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${rnd > 1 ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-300"}`}>
+                                Round {rnd} {rnd > 1 ? "★ NEW" : ""}
+                              </span>
+                              <div className="space-y-1 mt-2">
                                 {roundGroups[rnd].map((it, idx) => (
-                                  <div key={idx} className="flex justify-between text-xs py-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`font-black ${rnd > 1 ? "text-amber-400" : "text-orange-400"}`}>
-                                        {it.quantity}×
-                                      </span>
-                                      <span className={rnd > 1 ? "text-amber-100 font-bold" : "text-slate-200 font-medium"}>
-                                        {it.name}
-                                      </span>
-                                    </div>
+                                  <div key={idx} className="flex justify-between text-xs py-0.5">
+                                    <span className="font-black text-orange-400">{it.quantity}×</span>
+                                    <span className="text-slate-200">{it.name}</span>
                                   </div>
                                 ))}
                               </div>
@@ -913,28 +1003,12 @@ export default function EnterpriseApp() {
                       </div>
 
                       <div className="pt-4 border-t border-slate-800 flex gap-2 mt-4">
-                        {ord.status === "Pending" ? (
-                          <button
-                            onClick={() => updateKitchenStatus(ord.id, "Preparing")}
-                            className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition"
-                          >
-                            Start Cooking
-                          </button>
-                        ) : ord.status === "Preparing" ? (
-                          <button
-                            onClick={() => updateKitchenStatus(ord.id, "Ready")}
-                            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition"
-                          >
-                            Mark Ready
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => updateKitchenStatus(ord.id, "Preparing")}
-                            className="flex-1 py-2 bg-slate-800 text-slate-400 rounded-xl text-xs font-semibold hover:bg-slate-700 transition"
-                          >
-                            Re-open
-                          </button>
-                        )}
+                        <button
+                          onClick={() => supabase.from("orders").update({ status: ord.status === "Pending" ? "Preparing" : "Ready" }).eq("id", ord.id).then(fetchOrders)}
+                          className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition"
+                        >
+                          {ord.status === "Pending" ? "Start Cooking" : "Mark Ready"}
+                        </button>
                       </div>
                     </div>
                   );
@@ -944,30 +1018,147 @@ export default function EnterpriseApp() {
           </div>
         )}
 
-        {/* VIEW 3: TABLE QR STANDS */}
-        {currentView === "tables" && (
+        {/* VIEW 3: FEATURE 1 - DYNAMIC MENU & PRICE EDITOR */}
+        {currentView === "menu-manager" && (
           <div className="flex-1 p-8 bg-slate-900/95 overflow-y-auto">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-orange-500 rounded-2xl shadow-lg">
-                  <QrCode className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black text-white">Table QR Codes</h2>
-                  <p className="text-xs text-slate-400">Print acrylic table top stands</p>
-                </div>
+              <div>
+                <h2 className="text-lg font-black text-white">Menu & Price Management</h2>
+                <p className="text-xs text-slate-400">Change prices or add new cafe/restaurant dishes without developer help</p>
+              </div>
+            </div>
+
+            {/* Quick Add Dish Bar */}
+            <div className="bg-slate-950 border border-slate-800 p-5 rounded-3xl mb-6 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+              <div>
+                <label className="text-[11px] font-bold text-slate-400">Dish Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Masala Dosa"
+                  value={newDishName}
+                  onChange={(e) => setNewDishName(e.target.value)}
+                  className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-400">Price (₹)</label>
+                <input
+                  type="number"
+                  placeholder="120"
+                  value={newDishPrice}
+                  onChange={(e) => setNewDishPrice(e.target.value)}
+                  className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-400">Category</label>
+                <select
+                  value={newDishCategory}
+                  onChange={(e) => setNewDishCategory(e.target.value)}
+                  className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+                >
+                  <option value="Cafe & Snacks">Cafe & Snacks</option>
+                  <option value="Starters">Starters</option>
+                  <option value="Main Course">Main Course</option>
+                  <option value="Breads">Breads</option>
+                  <option value="Rice">Rice</option>
+                  <option value="Beverages">Beverages</option>
+                  <option value="Desserts">Desserts</option>
+                </select>
               </div>
 
               <button
-                onClick={() => window.print()}
-                className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
+                onClick={handleAddNewDish}
+                className="py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-orange-500/20"
               >
-                <Printer className="w-4 h-4" /> Print QR Cards
+                <Plus className="w-4 h-4" /> Add to Live Menu
               </button>
             </div>
 
+            {/* Menu Price Table */}
+            <div className="bg-slate-950 border border-slate-800 rounded-3xl overflow-hidden">
+              <div className="divide-y divide-slate-800/80">
+                {menuItems.map((dish) => (
+                  <div key={dish.id} className="p-4 flex items-center justify-between hover:bg-slate-900/40 transition">
+                    <div className="flex items-center gap-3">
+                      <img src={dish.image} alt={dish.name} className="w-12 h-12 rounded-xl object-cover" />
+                      <div>
+                        <h4 className="font-bold text-sm text-white">{dish.name}</h4>
+                        <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded-md">{dish.category}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {editingPriceId === dish.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            value={tempPrice}
+                            onChange={(e) => setTempPrice(e.target.value)}
+                            className="w-20 bg-slate-900 border border-orange-500 rounded-xl px-2 py-1 text-xs text-white font-bold"
+                          />
+                          <button onClick={() => handleUpdatePrice(dish.id)} className="p-1.5 bg-emerald-500 rounded-xl text-white">
+                            <Save className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => setEditingPriceId(null)} className="p-1.5 bg-slate-800 rounded-xl text-slate-400">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <span className="font-extrabold text-base text-orange-400">₹{dish.price}</span>
+                          <button
+                            onClick={() => {
+                              setEditingPriceId(dish.id);
+                              setTempPrice(String(dish.price));
+                            }}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW 4: FEATURE 2 - DYNAMIC TABLES & QR CARDS */}
+        {currentView === "tables" && (
+          <div className="flex-1 p-8 bg-slate-900/95 overflow-y-auto">
+            <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
+              <div>
+                <h2 className="text-lg font-black text-white">Dynamic Tables & QR Management</h2>
+                <p className="text-xs text-slate-400">Add or remove restaurant tables and print acrylic QR standees</p>
+              </div>
+
+              <button onClick={() => window.print()} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center gap-2">
+                <Printer className="w-4 h-4" /> Print QR Standees
+              </button>
+            </div>
+
+            {/* Add Table Bar */}
+            <div className="bg-slate-950 border border-slate-800 p-4 rounded-3xl mb-6 flex gap-3 max-w-md">
+              <input
+                type="text"
+                placeholder="Table Name (e.g. T-7 or Garden-1)"
+                value={newTableName}
+                onChange={(e) => setNewTableName(e.target.value)}
+                className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+              />
+              <button onClick={handleAddTable} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition">
+                + Add Table
+              </button>
+            </div>
+
+            {/* Tables Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {TABLES.map((table) => {
+              {tablesList.map((table) => {
                 const origin = typeof window !== "undefined" ? window.location.origin : "https://restaurant-pos.vercel.app";
                 const orderLink = `${origin}/order?table=${table}`;
                 const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(orderLink)}`;
@@ -975,11 +1166,11 @@ export default function EnterpriseApp() {
                 return (
                   <div key={table} className="bg-slate-950 border border-slate-800 rounded-3xl p-6 text-center flex flex-col items-center">
                     <h3 className="text-2xl font-black text-white mb-1">{table}</h3>
-                    <p className="text-xs text-orange-400 font-bold mb-4 uppercase tracking-wider">Scan for Digital Menu</p>
+                    <p className="text-xs text-orange-400 font-bold mb-4 uppercase tracking-wider">Scan to Order</p>
                     <div className="p-3 bg-white rounded-2xl mb-4 shadow-md">
-                      <img src={qrUrl} alt={`QR for ${table}`} className="w-44 h-44 object-contain" />
+                      <img src={qrUrl} alt={`QR for ${table}`} className="w-40 h-40 object-contain" />
                     </div>
-                    <p className="text-[11px] text-slate-500">Scan & Order directly from table</p>
+                    <p className="text-[11px] text-slate-500">Live Dine-in QR</p>
                   </div>
                 );
               })}
@@ -987,86 +1178,40 @@ export default function EnterpriseApp() {
           </div>
         )}
 
-        {/* VIEW 4: PROFESSIONAL RAW INVENTORY  */}
+        {/* VIEW 5: RAW INVENTORY */}
         {currentView === "inventory" && (
           <div className="flex-1 p-8 bg-slate-900/95 overflow-y-auto">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-orange-500 rounded-2xl shadow-lg">
-                  <Package className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black text-white">Inventory Management</h2>
-                  <p className="text-xs text-slate-400">Raw material depletion, stock inward & minimum threshold</p>
-                </div>
+              <div>
+                <h2 className="text-lg font-black text-white">Live Depleting Inventory</h2>
+                <p className="text-xs text-slate-400">Stock automatically depletes whenever bills are settled</p>
               </div>
-
-              <button
-                onClick={fetchInventory}
-                className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition text-slate-300"
-              >
-                <RefreshCw className={`w-4 h-4 ${invLoading ? "animate-spin" : ""}`} />
+              <button onClick={fetchInventory} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300">
+                <RefreshCw className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Inventory Table List */}
-            <div className="bg-slate-950 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-              <div className="p-4 bg-slate-900/80 border-b border-slate-800 flex justify-between items-center">
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-300">Raw Stock Inventory</h3>
-                <span className="text-[11px] text-slate-500 font-mono">{inventoryList.length} Items Configured</span>
-              </div>
-
+            <div className="bg-slate-950 border border-slate-800 rounded-3xl overflow-hidden">
               <div className="divide-y divide-slate-800/80">
                 {inventoryList.map((item) => {
-                  const isLowStock = Number(item.current_stock) < 10;
-                  const customVal = stockInputVal[item.id] || "";
-
+                  const isLow = Number(item.current_stock) < 10;
                   return (
-                    <div key={item.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-900/40 transition">
-                      <div className="flex items-center gap-3 min-w-[200px]">
-                        <div className={`p-2.5 rounded-2xl ${isLowStock ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"}`}>
-                          {isLowStock ? <AlertTriangle className="w-5 h-5" /> : <Package className="w-5 h-5" />}
+                    <div key={item.id} className="p-4 flex items-center justify-between hover:bg-slate-900/40">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2.5 rounded-2xl ${isLow ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-400"}`}>
+                          {isLow ? <AlertTriangle className="w-5 h-5" /> : <Package className="w-5 h-5" />}
                         </div>
                         <div>
                           <h4 className="font-bold text-sm text-white">{item.name}</h4>
-                          <span className="text-[11px] text-slate-400 font-medium">Unit: {item.unit}</span>
+                          <span className="text-[11px] text-slate-400">Unit: {item.unit}</span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="text-xs text-slate-400">Current In-Stock</p>
-                          <p className={`text-xl font-black ${isLowStock ? "text-red-400" : "text-white"}`}>
-                            {item.current_stock} <span className="text-xs text-slate-400 font-normal">{item.unit}</span>
-                          </p>
-                        </div>
-                        {isLowStock && (
-                          <span className="text-[10px] font-extrabold px-2.5 py-1 bg-red-500/20 border border-red-500/40 text-red-400 rounded-lg">
-                            Low Stock
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Quick Replenish Inward Form */}
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          placeholder="Qty..."
-                          value={customVal}
-                          onChange={(e) => setStockInputVal({ ...stockInputVal, [item.id]: e.target.value })}
-                          className="w-20 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-orange-500"
-                        />
-                        <button
-                          onClick={() => {
-                            if (customVal && Number(customVal) > 0) {
-                              handleStockUpdate(item.id, Number(item.current_stock), Number(customVal));
-                            }
-                          }}
-                          className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Add Stock</span>
-                        </button>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-xl font-black ${isLow ? "text-red-400" : "text-white"}`}>
+                          {item.current_stock} <span className="text-xs text-slate-400 font-normal">{item.unit}</span>
+                        </span>
+                        {isLow && <span className="text-[10px] font-extrabold px-2 py-0.5 bg-red-500/20 text-red-400 rounded-md">Low Stock</span>}
                       </div>
                     </div>
                   );
@@ -1076,72 +1221,18 @@ export default function EnterpriseApp() {
           </div>
         )}
 
-        {/* VIEW 5: SHIFT SALES REPORTS */}
+        {/* VIEW 6: REPORTS */}
         {currentView === "reports" && (
           <div className="flex-1 p-8 bg-slate-900/95 overflow-y-auto">
-            <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-orange-500 rounded-2xl shadow-lg">
-                  <BarChart3 className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black text-white">Daily Shift Financials</h2>
-                  <p className="text-xs text-slate-400">Cash register reconciliation</p>
-                </div>
-              </div>
-            </div>
-
+            <h2 className="text-lg font-black text-white mb-6">Daily Shift Financials</h2>
             {(() => {
               const completed = allOrdersHistory.filter((o) => o.status === "Completed");
               const totalSales = completed.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
-              const cashSales = completed
-                .filter((o) => o.payment_mode === "Cash")
-                .reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
-              const onlineSales = completed
-                .filter((o) => o.payment_mode === "Online")
-                .reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
-
               return (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                    <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5">
-                      <p className="text-xs font-bold text-slate-400">Total Net Revenue</p>
-                      <h3 className="text-2xl font-black text-white mt-1">₹{totalSales.toFixed(2)}</h3>
-                      <p className="text-[11px] text-slate-500 mt-1">{completed.length} settled tickets</p>
-                    </div>
-
-                    <div className="bg-slate-950 border border-emerald-500/30 rounded-3xl p-5">
-                      <p className="text-xs font-bold text-emerald-400">Cash in Drawer</p>
-                      <h3 className="text-2xl font-black text-white mt-1">₹{cashSales.toFixed(2)}</h3>
-                      <p className="text-[11px] text-slate-500 mt-1">Physical cash payments</p>
-                    </div>
-
-                    <div className="bg-slate-950 border border-sky-500/30 rounded-3xl p-5">
-                      <p className="text-xs font-bold text-sky-400">UPI / QR Collections</p>
-                      <h3 className="text-2xl font-black text-white mt-1">₹{onlineSales.toFixed(2)}</h3>
-                      <p className="text-[11px] text-slate-500 mt-1">Direct bank settlements</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5">
-                    <h3 className="font-bold text-sm text-white mb-3">Settled Bills Log</h3>
-                    <div className="space-y-2">
-                      {completed.slice(0, 8).map((ord) => (
-                        <div key={ord.id} className="flex justify-between items-center p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                          <div>
-                            <span className="font-black text-xs text-white">{ord.table_number}</span>
-                            <span className="text-[11px] text-slate-400 ml-2">Invoice #{ord.id}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="font-mono text-xs font-bold text-orange-400">₹{ord.total_amount}</span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">
-                              {ord.payment_mode || "Paid"}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6">
+                  <p className="text-xs font-bold text-slate-400">Total Revenue Collected</p>
+                  <h3 className="text-3xl font-black text-white mt-2">₹{totalSales.toFixed(2)}</h3>
+                  <p className="text-xs text-slate-500 mt-1">{completed.length} settled bills</p>
                 </div>
               );
             })()}
@@ -1149,43 +1240,121 @@ export default function EnterpriseApp() {
         )}
       </div>
 
-      {/* PAYMENT MODAL */}
+      {/* FEATURE 4: SPLIT / FULL PAYMENT MODAL */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800 mb-4">
               <div>
-                <h3 className="font-black text-base text-white">Select Payment Mode</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Table {selectedTable} • Total: ₹{grandTotal}</p>
+                <h3 className="font-black text-base text-white">Settle Payment</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Table {selectedTable} • Amount: ₹{grandTotal}</p>
               </div>
-              <button
-                onClick={() => setShowPaymentModal(false)}
-                className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800"
-              >
+              <button onClick={() => setShowPaymentModal(false)} className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* Mode Tabs */}
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-4">
               <button
-                onClick={() => finalizeOrderWithPayment("Cash")}
-                disabled={loading}
-                className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-950/20 text-emerald-400 flex flex-col items-center justify-center gap-2 font-bold transition"
+                onClick={() => setPaymentModeType("Full")}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${paymentModeType === "Full" ? "bg-orange-500 text-white" : "text-slate-400"}`}
               >
-                <Banknote className="w-6 h-6" />
-                <span className="text-xs">Cash</span>
+                Full Pay
               </button>
-
               <button
-                onClick={() => finalizeOrderWithPayment("Online")}
-                disabled={loading}
-                className="p-4 rounded-2xl bg-slate-950 border border-sky-500/30 hover:border-sky-500 hover:bg-sky-950/20 text-sky-400 flex flex-col items-center justify-center gap-2 font-bold transition"
+                onClick={() => setPaymentModeType("Split")}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${paymentModeType === "Split" ? "bg-orange-500 text-white" : "text-slate-400"}`}
               >
-                <CreditCard className="w-6 h-6" />
-                <span className="text-xs">UPI / Card</span>
+                Split Pay (Cash + UPI)
               </button>
             </div>
+
+            {paymentModeType === "Full" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => finalizeOrderWithPayment("Cash")}
+                  disabled={loading}
+                  className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 hover:border-emerald-500 text-emerald-400 flex flex-col items-center gap-2 font-bold transition"
+                >
+                  <Banknote className="w-6 h-6" />
+                  <span className="text-xs">Cash</span>
+                </button>
+
+                <button
+                  onClick={() => finalizeOrderWithPayment("Online")}
+                  disabled={loading}
+                  className="p-4 rounded-2xl bg-slate-950 border border-sky-500/30 hover:border-sky-500 text-sky-400 flex flex-col items-center gap-2 font-bold transition"
+                >
+                  <CreditCard className="w-6 h-6" />
+                  <span className="text-xs">UPI / Card</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400">Cash Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={cashPart}
+                    onChange={(e) => {
+                      const c = Number(e.target.value) || 0;
+                      setCashPart(e.target.value);
+                      setUpiPart(String(Math.max(0, grandTotal - c)));
+                    }}
+                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400">UPI / QR Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={upiPart}
+                    onChange={(e) => setUpiPart(e.target.value)}
+                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-bold"
+                  />
+                </div>
+
+                <button
+                  onClick={() => finalizeOrderWithPayment("Split")}
+                  disabled={loading}
+                  className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-black transition mt-2 shadow-lg shadow-orange-500/20"
+                >
+                  Confirm Split Settlement
+                </button>
+              </div>
+            )}
           </div>
+        </div>
+      )}
+
+      {/* FEATURE 3: HIDDEN KITCHEN THERMAL PRINTER SLIP (PRINTS DIRECT TO KITCHEN ROLL) */}
+      {kotPrintItems && (
+        <div id="kot-thermal-slip" className="hidden">
+          <div className="text-center font-mono text-[11px]">
+            <h3 className="font-bold text-sm">*** KITCHEN ORDER TICKET ***</h3>
+            <p>Table: {selectedTable} | Round: {kotPrintItems.round}</p>
+            <p>Time: {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+            <p>--------------------------------</p>
+          </div>
+          <table className="w-full font-mono text-[11px]">
+            <thead>
+              <tr className="border-b border-black">
+                <th className="text-left">Qty</th>
+                <th className="text-left">Item Name</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kotPrintItems.items.map((it, idx) => (
+                <tr key={idx}>
+                  <td className="font-bold">{it.quantity}x</td>
+                  <td>{it.name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="font-mono text-[10px] text-center mt-2">--------------------------------</p>
         </div>
       )}
     </div>
